@@ -15,14 +15,14 @@ on:
       schema_path:
         required: true
         type: string
-        default: 'src/schemas' # Настройте путь
+        default: 'schemas'
 
 jobs:
   check_diff_and_comment:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: write # Нужно для комментирования PR
+      pull-requests: write
     steps:
       - name: Checkout Base Branch
         uses: actions/checkout@v4
@@ -41,17 +41,19 @@ jobs:
       - name: Сравнение схем и генерация отчета
         id: diff
         run: |
-          # ВСТАВЬТЕ СЮДА ВАШУ ЛОГИКУ СРАВНЕНИЯ (из reporting_action_poc.yml)!
-          # Используйте пути 'base/${{ inputs.schema_path }}' и 'head/${{ inputs.schema_path }}'
+          CURRENT_PATH="head/${{ inputs.schema_path }}"
+          PREVIOUS_PATH="base/${{ inputs.schema_path }}"
           
-          # Пример логики:
-          DIFF_OUTPUT=$(diff -r head/${{ inputs.schema_path }} base/${{ inputs.schema_path }} || true)
+          # ВСТАВЬТЕ СЮДА ВАШУ ЛОГИКУ СРАВНЕНИЯ!
+          DIFF_OUTPUT=$(diff -r $CURRENT_PATH $PREVIOUS_PATH || true)
+          
           if [ -z "$DIFF_OUTPUT" ]; then
             REPORT="🎉 Изменений в схемах не обнаружено."
             HAS_CHANGES="false"
           else
             REPORT="## Обнаружены изменения в схемах (PR #${{ inputs.pull_request_number }}):\n\n\`\`\`diff\n$DIFF_OUTPUT\n\`\`\`"
-            REPORT="${REPORT//'%'/'%25'}" # Экранирование для корректного вывода
+            # Экранирование для корректной передачи в GITHUB_OUTPUT
+            REPORT="${REPORT//'%'/'%25'}" 
             REPORT="${REPORT//$'\n'/'%0A'}" 
             REPORT="${REPORT//$'\r'/'%0D'}" 
             HAS_CHANGES="true"

@@ -1,5 +1,0 @@
-repos:
-  - name: khandramai/a
-    paths: ["ramls"]
-  - name: khandramai/b
-    paths: ["ramls"]
