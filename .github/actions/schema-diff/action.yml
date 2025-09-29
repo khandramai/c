@@ -1,173 +1,160 @@
-name: Aggregate Schema Diff Report
+name: "Schema Diff (prev vs curr tag)"
+description: "Detects prev/curr tags in a public repo, diffs configured directories, outputs markdown report."
+inputs:
+  repo:
+    description: "owner/repo для анализа (например, khandramai/a)"
+    required: true
+  paths_json:
+    description: "JSON-массив путей (от корня репо) для сравнения"
+    required: true
+  tag_selector:
+    description: "auto | latest | pattern:<regex>"
+    required: false
+    default: "auto"
+outputs:
+  prev_tag:
+    description: "Определённый предыдущий тег"
+    value: ${{ steps.tags.outputs.prev }}
+  curr_tag:
+    description: "Определённый текущий тег"
+    value: ${{ steps.tags.outputs.curr }}
+  report_dir:
+    description: "Каталог с отчётом (относительно GITHUB_WORKSPACE)"
+    value: ${{ steps.diff.outputs.report_dir }}
+runs:
+  using: "composite"
+  steps:
+    - name: Install tools
+      shell: bash
+      run: |
+        sudo apt-get update -y
+        sudo apt-get install -y jq git rsync
 
-on:
-  workflow_dispatch:
-    inputs:
-      config_path:
-        description: "Path to repos config (YAML)"
-        default: ".github/schema-repos.yml"
-        required: true
-      tag_selector:
-        description: "Tag selection: auto | latest | pattern:<regex>"
-        default: "auto"
-        required: true
+    - name: Resolve tags
+      id: tags
+      shell: bash
+      env:
+        REPO: ${{ inputs.repo }}
+        TAG_SELECTOR: ${{ inputs.tag_selector }}
+      run: |
+        set -euo pipefail
+        git ls-remote --tags "https://github.com/${REPO}.git" \
+          | awk '{print $2}' \
+          | sed -E 's#refs/tags/##; s/\^\{\}$//' \
+          | sort -u > all-tags.txt
 
-permissions:
-  contents: read
-  actions: write
+        if [[ ! -s all-tags.txt ]]; then
+          echo "No tags in $REPO" >&2; exit 1
+        fi
 
-jobs:
-  build-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.mk.outputs.matrix }}
-    steps:
-      - name: Checkout central repo
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        pick_latest_two_semver() {
+          grep -E '^[0-9]+(\.[0-9]+)*(-[0-9A-Za-z\.-]+)?$' all-tags.txt | sort -V | tail -n 2
+        }
+        pick_latest_two_by_refname() { sort -V all-tags.txt | tail -n 2; }
 
-      - id: mk
-        name: Build matrix from config
-        uses: actions/github-script@v7
-        with:
-          # Можешь передать путь явно (иначе возьмётся из workflow_dispatch или дефолт)
-          config_path: ${{ github.event.inputs.config_path }}
-          script: |
-            const fs = require('fs');
+        case "$TAG_SELECTOR" in
+          auto)
+            mapfile -t sel < <(pick_latest_two_semver || true)
+            [[ ${#sel[@]} -lt 2 ]] && mapfile -t sel < <(pick_latest_two_by_refname)
+            ;;
+          latest)
+            mapfile -t sel < <(sort -V all-tags.txt | tail -n 2)
+            ;;
+          pattern:*)
+            pat="${TAG_SELECTOR#pattern:}"
+            mapfile -t sel < <(grep -E "$pat" all-tags.txt | sort -V | tail -n 2)
+            ;;
+          *)
+            echo "Unsupported tag_selector: $TAG_SELECTOR" >&2; exit 1
+            ;;
+        esac
 
-            // 1) попытаемся взять путь, переданный в 'with'
-            const inputCfg = core.getInput('config_path'); // может быть '' если не передан
-            // 2) попытаемся прочитать из workflow_dispatch (через GITHUB_EVENT_PATH)
-            let dispatchCfg = '';
-            try {
-              const eventPath = process.env.GITHUB_EVENT_PATH;
-              if (eventPath && fs.existsSync(eventPath)) {
-                const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-                if (event && event.inputs && typeof event.inputs.config_path === 'string') {
-                  dispatchCfg = event.inputs.config_path;
-                }
-              }
-            } catch (e) {
-              core.warning(`Failed to read GITHUB_EVENT_PATH: ${e.message}`);
-            }
-            // 3) дефолт
-            const fallbackCfg = '.github/schema-repos.yml';
+        [[ ${#sel[@]} -ge 2 ]] || { echo "Could not resolve two tags in $REPO" >&2; exit 1; }
 
-            const candidates = [inputCfg, dispatchCfg, fallbackCfg].map(s => (s || '').trim());
-            const cfgPath = candidates.find(s => s.length > 0) || fallbackCfg;
+        echo "prev=${sel[0]}" >> "$GITHUB_OUTPUT"
+        echo "curr=${sel[1]}" >> "$GITHUB_OUTPUT"
 
-            core.info(`Config path resolved to: ${cfgPath}`);
+    - name: Checkout current tag
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repo }}
+        ref: ${{ steps.tags.outputs.curr }}
+        path: repo_curr
+        fetch-depth: 0
 
-            if (!fs.existsSync(cfgPath)) {
-              core.setFailed(`Config file not found at: ${cfgPath}. Make sure it exists in the checked-out repo.`);
-              return;
-            }
+    - name: Checkout previous tag
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.repo }}
+        ref: ${{ steps.tags.outputs.prev }}
+        path: repo_prev
+        fetch-depth: 0
 
-            const raw = fs.readFileSync(cfgPath, 'utf8');
+    - name: Diff paths
+      id: diff
+      shell: bash
+      env:
+        REPO: ${{ inputs.repo }}
+        PATHS_JSON: ${{ inputs.paths_json }}
+      run: |
+        set -euo pipefail
+        mkdir -p "report/${REPO}"
+        OUT_README="report/${REPO}/README.md"
 
-            // --- Простой парсер нашего формата YAML ---
-            // Ожидается структура:
-            // repos:
-            //   - name: khandramai/a
-            //     paths: ["ramlsa"]
-            //   - name: khandramai/b
-            //     paths:
-            //       - ramlsb
-            const repos = [];
-            const lines = raw.split(/\r?\n/);
-            let i = 0;
-            while (i < lines.length && !/^repos:/.test(lines[i].trim())) i++;
-            i++;
+        echo "# Schema Diff Report — ${REPO}" > "$OUT_README"
+        echo "" >> "$OUT_README"
+        echo "- Current tag: **${{ steps.tags.outputs.curr }}**" >> "$OUT_README"
+        echo "- Previous tag: **${{ steps.tags.outputs.prev }}**" >> "$OUT_README"
+        echo "" >> "$OUT_README"
 
-            let cur = null;
-            for (; i < lines.length; i++) {
-              const l = lines[i];
+        echo "$PATHS_JSON" | jq -e . >/dev/null || { echo "paths_json is not valid JSON"; exit 1; }
+        mapfile -t paths < <(echo "$PATHS_JSON" | jq -r '.[]')
 
-              // Новая запись репозитория
-              const mName = l.match(/^\s*-\s*name:\s*(.+)\s*$/);
-              if (mName) {
-                if (cur) repos.push(cur);
-                cur = { name: mName[1].trim(), paths: [] };
-                continue;
-              }
+        diff_one() {
+          local subpath="$1"
+          local curr_dir="repo_curr/${subpath}"
+          local prev_dir="repo_prev/${subpath}"
+          local out_md="report/${REPO}/$(echo "$subpath" | tr '/ ' '__').md"
 
-              // Инлайн массив путей: paths: ["a","b"]
-              const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
-              if (mInline && cur) {
-                cur.paths = mInline[1]
-                  .split(',')
-                  .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-                  .filter(Boolean);
-                continue;
-              }
+          echo "## Path: \`${subpath}\`" > "$out_md"
 
-              // Блочный список путей:
-              const mPathsKey = l.match(/^\s*paths:\s*$/);
-              if (mPathsKey && cur) {
-                let j = i + 1;
-                while (j < lines.length && /^\s+-\s+/.test(lines[j])) {
-                  const mItem = lines[j].match(/^\s*-\s+(.+)\s*$/);
-                  if (mItem) cur.paths.push(mItem[1].trim());
-                  j++;
-                }
-              }
-            }
-            if (cur) repos.push(cur);
+          if [[ ! -d "$curr_dir" && ! -d "$prev_dir" ]]; then
+            echo "_Path not found in either tag._" >> "$out_md"
+            echo "- \`${subpath}\`: not found in both tags" >> "$OUT_README"
+            return
+          fi
 
-            if (!repos.length) {
-              core.setFailed("No repos in config. Expected a top-level 'repos:' list.");
-              return;
-            }
+          tmp_prev="$(mktemp -d)"; tmp_curr="$(mktemp -d)"
+          [[ -d "$prev_dir" ]] && rsync -a --exclude '.git' "$prev_dir"/ "$tmp_prev"/ || true
+          [[ -d "$curr_dir" ]] && rsync -a --exclude '.git' "$curr_dir"/ "$tmp_curr"/ || true
 
-            // sanity: имя и хотя бы пустой массив путей
-            for (const r of repos) {
-              if (!r.name || typeof r.name !== 'string') {
-                core.setFailed("Invalid config: every repo entry must have 'name'.");
-                return;
-              }
-              if (!Array.isArray(r.paths)) r.paths = [];
-            }
+          shopt -s nullglob
+          for f in $(find "$tmp_prev" -type f -name '*.json'); do jq -S . "$f" > "$f.norm" && mv "$f.norm" "$f"; done
+          for f in $(find "$tmp_curr" -type f -name '*.json'); do jq -S . "$f" > "$f.norm" && mv "$f.norm" "$f"; done
 
-            const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
-            core.setOutput('matrix', JSON.stringify(matrix));
-            core.info(`Matrix built: ${JSON.stringify(matrix)}`);
-          result-encoding: string
+          if diff -ruN "$tmp_prev" "$tmp_curr" > "$out_md.tmp" ; then
+            echo "_No differences._" >> "$out_md"
+            echo "- \`${subpath}\`: no changes" >> "$OUT_README"
+          else
+            echo '```diff' >> "$out_md"
+            cat "$out_md.tmp" >> "$out_md"
+            echo '```' >> "$out_md"
+            echo "- \`${subpath}\`: **changes detected**" >> "$OUT_README"
+          fi
+          rm -rf "$tmp_prev" "$tmp_curr" "$out_md.tmp" || true
+        }
 
-  per-repo:
-    name: Build report for ${{ matrix.repo }}
-    needs: build-matrix
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
-    steps:
-      - name: Run schema diff (composite action from repo c)
-        id: run
-        uses: ./.github/actions/schema-diff
-        with:
-          repo: ${{ matrix.repo }}
-          paths_json: ${{ toJson(matrix.paths) }}
-          tag_selector: ${{ github.event.inputs.tag_selector }}
+        for p in "${paths[@]}"; do diff_one "$p"; done
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: "${{ matrix.repo }}-${{ steps.run.outputs.prev_tag }}__${{ steps.run.outputs.curr_tag }}"
-          path: ${{ steps.run.outputs.report_dir }}
-          if-no-files-found: error
+        {
+          echo ""
+          echo "### Subreports"
+          for md in report/${REPO}/*.md; do
+            base=$(basename "$md")
+            [[ "$base" == "README.md" ]] && continue
+            title="${base%.md}"
+            echo "- [$title](./$base)"
+          done
+        } >> "$OUT_README"
 
-  aggregate:
-    name: Aggregate summary
-    needs: per-repo
-    runs-on: ubuntu-latest
-    steps:
-      - name: Summary
-        run: |
-          {
-            echo "# Combined Schema Diff Report"
-            echo
-            echo "Артефакты доступны в разделе **Artifacts**:"
-            echo "- Имя: \`<owner/repo>-<prev>__<curr>\` (например, \`khandramai/a-1.2.3__1.2.4\`)"
-            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по указанным папкам"
-          } >> "$GITHUB_STEP_SUMMARY"
+        echo "report_dir=report/${REPO}" >> "$GITHUB_OUTPUT"
