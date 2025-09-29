@@ -1,0 +1,118 @@
+name: Aggregate RAMLs Report (Last Two Tags)
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos_json:
+        description: 'JSON-массив репозиториев: ["your-org/a","your-org/b"]'
+        required: true
+        default: '["khandramai/a","khandramai/b"]'
+      path:
+        description: 'Diff'
+        required: true
+        default: 'ramls'
+
+permissions:
+  contents: read
+
+jobs:
+  per-repo:
+    name: Build per-repo report
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: ${{ fromJson(inputs.repos_json) }}
+
+    steps:
+      - name: Checkout ${{ matrix.repo }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repo }}
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Pick last two tags
+        id: tags
+        shell: bash
+        run: |
+          mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
+          if [[ "${#TAGS[@]}" -lt 2 ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No enough tags in ${{ matrix.repo }}"; exit 0
+          fi
+          echo "to=${TAGS[0]}"   >> $GITHUB_OUTPUT
+          echo "from=${TAGS[1]}" >> $GITHUB_OUTPUT
+
+      - name: Build repo report (tags)
+        if: steps.tags.outputs.skip != 'true'
+        id: rep
+        shell: bash
+        run: |
+          FROM="${{ steps.tags.outputs.from }}"
+          TO="${{ steps.tags.outputs.to }}"
+          FOLDER="${{ inputs.path }}"
+          SAFE="${{ matrix.repo }}"; SAFE="${SAFE//\//__}"
+          OUT="${SAFE}-${FOLDER}-tags-diff.md"
+
+          echo "# ${FOLDER} changes in ${{ matrix.repo }}" > "$OUT"
+          echo "" >> "$OUT"
+          echo "- From tag: \`$FROM\`" >> "$OUT"
+          echo "- To tag:   \`$TO\`"   >> "$OUT"
+          echo "" >> "$OUT"
+
+          CHANGES=$(git diff --name-status "$FROM" "$TO" -- "$FOLDER/" || true)
+          if [[ -z "$CHANGES" ]]; then
+            echo "_No changes in \`$FOLDER/\`_" >> "$OUT"
+          else
+            echo "| Status | File |" >> "$OUT"
+            echo "|------:|------|" >> "$OUT"
+            while IFS=$'\t' read -r st file; do
+              [[ -z "$st\ $file" ]] && continue
+              echo "| \`$st\` | \`$file\` |" >> "$OUT"
+            done <<< "$CHANGES"
+          fi
+          echo "out=$OUT" >> $GITHUB_OUTPUT
+
+      - name: Upload per-repo artifact
+        if: steps.tags.outputs.skip != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.repo }}-${{ inputs.path }}-tags-report
+          path: ${{ steps.rep.outputs.out }}
+
+  aggregate:
+    name: Combine reports
+    runs-on: ubuntu-latest
+    needs: per-repo
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Build combined report
+        id: comb
+        shell: bash
+        run: |
+          OUT="combined-${{ inputs.path }}-tags-report.md"
+          echo "# Combined ${{ inputs.path }} changes (last two tags)" > "$OUT"
+          echo "" >> "$OUT"
+          shopt -s globstar nullglob
+          for f in reports/**/**/*.md reports/**/*.md; do
+            echo "## $(basename "$f")" >> "$OUT"
+            echo "" >> "$OUT"
+            cat "$f" >> "$OUT"
+            echo "" >> "$OUT"
+            echo "---" >> "$OUT"
+            echo "" >> "$OUT"
+          done
+          echo "out=$OUT" >> $GITHUB_OUTPUT
+
+      - name: Upload combined artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: combined-${{ inputs.path }}-tags-report
+          path: ${{ steps.comb.outputs.out }}
