@@ -6,9 +6,9 @@ on:
       repos_json:
         description: 'JSON-массив репозиториев: ["owner/a","owner/b"]'
         required: true
-        default: '["owner/a","owner/b"]'
+        default: '["khandramai/a","khandramai/b"]'
       path:
-        description: 'Каталог для диффа'
+        description: 'diff'
         required: true
         default: 'ramls'
 
@@ -25,27 +25,41 @@ jobs:
         repo: ${{ fromJson(inputs.repos_json) }}
 
     steps:
+      - name: Debug repo name
+        run: echo "Repo to checkout: ${{ matrix.repo }}"
+
+      - name: Verify PAT visibility
+        if: ${{ secrets.GH_PAT }}
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          set -e
+          echo "Checking API visibility for ${{ matrix.repo }}..."
+          curl -s -H "Authorization: token $GH_PAT" \
+            https://api.github.com/repos/${{ matrix.repo }} \
+            | jq '.full_name,.private,.default_branch'
+
       - name: Checkout ${{ matrix.repo }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ matrix.repo }}
+          repository: ${{ matrix.repo }}     
           fetch-depth: 0
           fetch-tags: true
-          # Для приватных репо используйте PAT, добавленный в c как секрет GH_PAT
           token: ${{ secrets.GH_PAT || github.token }}
 
-      - name: Ensure tags exist
+      - name: Pick last two tags
         id: tags
         shell: bash
         run: |
-          # Берём по дате создания два последних тега
           mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
           if [[ "${#TAGS[@]}" -lt 2 ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
-            echo "No enough tags in ${{ matrix.repo }}"; exit 0
+            echo "No enough tags in ${{ matrix.repo }}"
+            exit 0
           fi
           echo "to=${TAGS[0]}"   >> $GITHUB_OUTPUT
           echo "from=${TAGS[1]}" >> $GITHUB_OUTPUT
+          echo "Using tags: from=${TAGS[1]} to=${TAGS[0]}"
 
       - name: Build repo report (diff in ${{ inputs.path }}/ between last two tags)
         if: steps.tags.outputs.skip != 'true'
@@ -64,19 +78,16 @@ jobs:
           echo "- To tag:   \`$TO\`"   >> "$OUT"
           echo "" >> "$OUT"
 
-          # Имён и статусов внутри папки
           CHANGES=$(git diff --name-status "$FROM" "$TO" -- "$FOLDER/" || true)
 
           if [[ -z "$CHANGES" ]]; then
             echo "_No changes in \`$FOLDER/\`_" >> "$OUT"
           else
-            # Сводка A/M/D
             ADDED=$(echo "$CHANGES" | awk '$1=="A"{c++} END{print c+0}')
             MODF=$(echo "$CHANGES" | awk '$1=="M"{c++} END{print c+0}')
             DELT=$(echo "$CHANGES" | awk '$1=="D"{c++} END{print c+0}')
             echo "**Summary:** A=$ADDED, M=$MODF, D=$DELT" >> "$OUT"
             echo "" >> "$OUT"
-
             echo "| Status | File |" >> "$OUT"
             echo "|------:|------|" >> "$OUT"
             while IFS=$'\t' read -r st file; do
@@ -124,11 +135,9 @@ jobs:
             echo "---" >> "$OUT"
             echo "" >> "$OUT"
           done
-
           if [[ $found -eq 0 ]]; then
             echo "_No per-repo reports were produced (probably missing tags)_" >> "$OUT"
           fi
-
           echo "out=$OUT" >> $GITHUB_OUTPUT
 
       - name: Upload combined artifact
