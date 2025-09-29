@@ -1,0 +1,12 @@
+name: Call remote Reporting
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  call-report:
+    uses: khandramai/changes-reporting-poc/.github/workflows/reporting_action_poc.yml@main
+    permissions:
+      contents: read
+      pull-requests: write
+    secrets: inherit
