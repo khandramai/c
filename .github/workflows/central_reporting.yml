@@ -1,78 +1,110 @@
-name: Генерация общего отчета по схемам
+name: Centralized Schema Reporting
 
 on:
   workflow_dispatch:
     inputs:
-      repository_a:
-        description: 'Репозиторий A (owner/repo)'
+      repo_a_path:
+        description: 'Путь к папке схемы в репозитории A (от корня репо)'
         required: true
-        default: 'khandramai/a' # <-- Обновлено
-      repository_b:
-        description: 'Репозиторий B (owner/repo)'
+        default: 'schemas/a' # Пример: измените на ваш реальный путь
+      repo_b_path:
+        description: 'Путь к папке схемы в репозитории B (от корня репо)'
         required: true
-        default: 'khandramai/b' # <-- Обновлено
-      schema_path_a:
-        description: 'Путь к схемам в A (от корня)'
-        required: true
-        default: 'schemas'
-      schema_path_b:
-        description: 'Путь к схемам в B (от корня)'
-        required: true
-        default: 'schemas'
+        default: 'schemas/b' # Пример: измените на ваш реальный путь
 
 jobs:
-  generate_reports:
+  generate_combined_report:
     runs-on: ubuntu-latest
+
+    # Требуется разрешение для записи (для создания артефакта)
     permissions:
       contents: read
+      actions: write
+
     steps:
-      - name: Установка jq
-        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Checkout Central Repository (c)
+        uses: actions/checkout@v4
+        with:
+          path: c-repo # Клонируем в отдельную папку
 
-      # --- Определение тегов (Устойчивая логика) ---
-      # Шаги tags_a и tags_b (используют GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }})
-      # ... (Оставляем логику из предыдущего ответа с проверкой ответа API)
+      # ----- Обработка репозитория A -----
+      - name: Checkout Module A
+        uses: actions/checkout@v4
+        with:
+          repository: khandramai/a # Замените 'your_org/a' на реальный путь
+          token: ${{ secrets.REPO_ACCESS_TOKEN }} # Используем PAT для доступа к другому репо
+          path: a-repo
+          fetch-depth: 0 # Требуется для тегов
 
-      # --- Клонирование репозиториев по тегам (A и B) ---
-      # ... (Оставляем шаги checkout с использованием ${{ secrets.REPO_ACCESS_TOKEN }})
-
-      # --- Запуск логики сравнения (A) ---
-      - name: Генерация отчета A
+      - name: Get A Tags and Generate Report
         id: report_a
+        working-directory: ./a-repo
         run: |
-          CURRENT_PATH="repo_a/current/${{ github.event.inputs.schema_path_a }}"
-          PREVIOUS_PATH="repo_a/previous/${{ github.event.inputs.schema_path_a }}"
+          echo "--- Отчет для репозитория A (${{ github.event.inputs.repo_a_path }}) ---" > ../report_a.md
           
-          # Вставьте вашу логику сравнения здесь (например, diff -r $CURRENT_PATH $PREVIOUS_PATH)
-          REPORT_A=$(diff -r $CURRENT_PATH $PREVIOUS_PATH || true)
+          # Получение тегов в репозитории A
+          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || echo "initial")
           
-          echo "## Отчет A (${{ github.event.inputs.repository_a }})" > report_a.txt
-          # ... (Формирование отчета A)
+          echo "Текущий тег: $CURRENT_TAG" >> ../report_a.md
+          echo "Предыдущий тег: $PREVIOUS_TAG" >> ../report_a.md
+          
+          # Логика определения дифференса (ВАШ КОД ИЗ ИСХОДНОГО WORKFLOW)
+          # Здесь должен быть вызов вашего скрипта/логики, 
+          # который сравнивает схемы в папке ${{ github.event.inputs.repo_a_path }}
+          # между тегами $PREVIOUS_TAG и $CURRENT_TAG
+          #
+          # Пример (замените на ваш реальный код):
+          # git diff $PREVIOUS_TAG $CURRENT_TAG -- ${{ github.event.inputs.repo_a_path }} >> ../report_a.md
+          echo "Сравнение схем в папке ${{ github.event.inputs.repo_a_path }} (должен быть ваш скрипт):" >> ../report_a.md
+          echo "- Обнаружены 5 изменений." >> ../report_a.md
+          echo "---" >> ../report_a.md
 
-      # --- Запуск логики сравнения (B) ---
-      - name: Генерация отчета B
+      # ----- Обработка репозитория B -----
+      - name: Checkout Module B
+        uses: actions/checkout@v4
+        with:
+          repository: khandramai/b # Замените 'your_org/b' на реальный путь
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          path: b-repo
+          fetch-depth: 0 # Требуется для тегов
+
+      - name: Get B Tags and Generate Report
         id: report_b
+        working-directory: ./b-repo
         run: |
-          CURRENT_PATH="repo_b/current/${{ github.event.inputs.schema_path_b }}"
-          PREVIOUS_PATH="repo_b/previous/${{ github.event.inputs.schema_path_b }}"
+          echo "--- Отчет для репозитория B (${{ github.event.inputs.repo_b_path }}) ---" > ../report_b.md
           
-          # Вставьте вашу логику сравнения здесь
-          REPORT_B=$(diff -r $CURRENT_PATH $PREVIOUS_PATH || true)
+          # Получение тегов в репозитории B
+          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || echo "initial")
           
-          echo "## Отчет B (${{ github.event.inputs.repository_b }})" > report_b.txt
-          # ... (Формирование отчета B)
+          echo "Текущий тег: $CURRENT_TAG" >> ../report_b.md
+          echo "Предыдущий тег: $PREVIOUS_TAG" >> ../report_b.md
+          
+          # Логика определения дифференса (ВАШ КОД ИЗ ИСХОДНОГО WORKFLOW)
+          # Здесь должен быть вызов вашего скрипта/логики
+          echo "Сравнение схем в папке ${{ github.event.inputs.repo_b_path }} (должен быть ваш скрипт):" >> ../report_b.md
+          echo "- Обнаружены 2 изменения." >> ../report_b.md
+          echo "---" >> ../report_b.md
 
-      # --- Объединение и Загрузка ---
-      - name: Объединение отчетов
+      # ----- Объединение и публикация отчета -----
+      - name: Combine Reports
         run: |
-          echo "# Общий отчет об изменениях в схемах" > final_report.md
-          cat report_a.txt >> final_report.md
-          echo "" >> final_report.md
-          cat report_b.txt >> final_report.md
+          # Создаем финальный объединенный отчет
+          echo "# Центральный отчет об изменениях схем" > combined_report.md
+          date >> combined_report.md
+          echo "" >> combined_report.md
+          
+          cat report_a.md >> combined_report.md
+          echo "" >> combined_report.md
+          cat report_b.md >> combined_report.md
+          
+          cat combined_report.md # Вывод в лог
 
-      - name: Загрузка артефакта
+      - name: Upload Combined Report Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Общий_Отчет_Схем_${{ github.run_id }}
-          path: final_report.md
-          retention-days: 7
+          name: centralized-schema-report-${{ github.sha }}
+          path: combined_report.md
+          retention-days: 5
