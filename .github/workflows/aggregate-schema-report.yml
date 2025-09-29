@@ -22,39 +22,67 @@ jobs:
     outputs:
       matrix: ${{ steps.mk.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout central repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - id: mk
+        name: Build matrix from config
         uses: actions/github-script@v7
         with:
+          # ПРОБРАСЫВАЕМ input в сам шаг, чтобы core.getInput() вернул путь
+          config_path: ${{ github.event.inputs.config_path }}
           script: |
             const fs = require('fs');
-            const path = core.getInput('config_path');
-            const raw = fs.readFileSync(path, 'utf8');
 
+            // Получаем путь из inputs этого шага
+            const cfgPath = core.getInput('config_path') || '.github/schema-repos.yml';
+            core.info(`Reading config from: ${cfgPath}`);
+
+            // Читаем файл
+            const raw = fs.readFileSync(cfgPath, 'utf8');
+
+            // Простой парсер для ожидаемой структуры:
+            // repos:
+            //   - name: khandramai/a
+            //     paths: ["ramlsa"]
+            //   - name: khandramai/b
+            //     paths:
+            //       - ramlsb
             const repos = [];
             const lines = raw.split(/\r?\n/);
-            let i=0;
-            while (i<lines.length && !/^repos:/.test(lines[i].trim())) i++;
+            let i = 0;
+            while (i < lines.length && !/^repos:/.test(lines[i].trim())) i++;
             i++;
-            let cur=null;
-            for (; i<lines.length; i++){
+            let cur = null;
+
+            for (; i < lines.length; i++) {
               const l = lines[i];
+
+              // Новая запись репозитория
               const mName = l.match(/^\s*-\s*name:\s*(.+)\s*$/);
               if (mName) {
                 if (cur) repos.push(cur);
                 cur = { name: mName[1].trim(), paths: [] };
                 continue;
               }
+
+              // Инлайн массив путей: paths: ["a", "b"]
               const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
               if (mInline && cur) {
-                cur.paths = mInline[1].split(',').map(s=>s.trim().replace(/^['"]|['"]$/g,''));
+                cur.paths = mInline[1]
+                  .split(',')
+                  .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
+                  .filter(Boolean);
                 continue;
               }
+
+              // Начало блочного списка путей:
               const mPathsKey = l.match(/^\s*paths:\s*$/);
               if (mPathsKey && cur) {
-                let j=i+1;
-                while (j<lines.length && /^\s+-\s+/.test(lines[j])) {
+                let j = i + 1;
+                while (j < lines.length && /^\s+-\s+/.test(lines[j])) {
                   const mItem = lines[j].match(/^\s*-\s+(.+)\s*$/);
                   if (mItem) cur.paths.push(mItem[1].trim());
                   j++;
@@ -62,10 +90,15 @@ jobs:
               }
             }
             if (cur) repos.push(cur);
-            if (!repos.length) core.setFailed("No repos in config.");
 
-            const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
-            core.setOutput('matrix', JSON.stringify(matrix));
+            if (!repos.length) {
+              core.setFailed("No repos in config. Make sure the file has a top-level 'repos:' list.");
+            } else {
+              const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
+              core.setOutput('matrix', JSON.stringify(matrix));
+              core.info(`Matrix: ${JSON.stringify(matrix)}`);
+            }
+          result-encoding: string
 
   per-repo:
     name: Build report for ${{ matrix.repo }}
@@ -75,7 +108,7 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
     steps:
-      - name: Run schema diff
+      - name: Run schema diff (composite action from repo c)
         id: run
         uses: ./.github/actions/schema-diff
         with:
@@ -102,5 +135,5 @@ jobs:
             echo
             echo "Артефакты доступны в разделе **Artifacts**:"
             echo "- Имя: \`<owner/repo>-<prev>__<curr>\` (например, \`khandramai/a-1.2.3__1.2.4\`)"
-            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по папкам \`ramlsa\` и \`ramlsb\`"
+            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по указанным папкам"
           } >> "$GITHUB_STEP_SUMMARY"
