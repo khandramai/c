@@ -27,85 +27,44 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install yq & jq
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq
+          YQ_BIN=/usr/local/bin/yq
+          sudo curl -L "https://github.com/mikefarah/yq/releases/download/v4.44.3/yq_linux_amd64" -o "$YQ_BIN"
+          sudo chmod +x "$YQ_BIN"
+          yq --version
+
       - id: mk
-        name: Build matrix from config
-        uses: actions/github-script@v7
-        with:
-          # ВАЖНО: пробрасываем вход, чтобы core.getInput('config_path') НЕ был пустым
-          config_path: ${{ github.event.inputs.config_path }}
-          script: |
-            const fs = require('fs');
-            const core = require('@actions/core');
+        name: Build matrix from config (yq)
+        env:
+          CFG: ${{ github.event.inputs.config_path }}
+        run: |
+          set -euo pipefail
+          : "${CFG:=.github/schema-repos.yml}"
+          echo "Using config: $CFG"
+          if [[ ! -f "$CFG" ]]; then
+            echo "::error::Config file not found at $CFG"
+            exit 1
+          fi
 
-            // Берём путь из input или ставим дефолт
-            const cfgPathInput = core.getInput('config_path');
-            const cfgPath = (cfgPathInput && cfgPathInput.trim().length > 0)
-              ? cfgPathInput.trim()
-              : '.github/schema-repos.yml';
+          # Expecting:
+          # repos:
+          #   - name: khandramai/a
+          #     paths: ["ramlsa"]
+          #   - name: khandramai/b
+          #     paths:
+          #       - ramlsb
+          json=$(yq -o=json '.repos | map({repo: .name, paths: (.paths // [])})' "$CFG")
 
-            core.info(`Reading config from: ${cfgPath}`);
+          # Validate JSON
+          echo "$json" | jq -e 'type=="array" and length>0' >/dev/null || { echo "::error::No repos in config"; exit 1; }
 
-            if (!fs.existsSync(cfgPath)) {
-              core.setFailed(`Config file not found at: ${cfgPath}`);
-              return;
-            }
-
-            const raw = fs.readFileSync(cfgPath, 'utf8');
-
-            // Парсим ожидаемую структуру YAML "в лоб"
-            // repos:
-            //   - name: khandramai/a
-            //     paths: ["ramlsa"]
-            //   - name: khandramai/b
-            //     paths:
-            //       - ramlsb
-            const repos = [];
-            const lines = raw.split(/\r?\n/);
-            let i = 0;
-            while (i < lines.length && !/^repos:/.test(lines[i].trim())) i++;
-            i++;
-
-            let cur = null;
-            for (; i < lines.length; i++) {
-              const l = lines[i];
-
-              const mName = l.match(/^\s*-\s*name:\s*(.+)\s*$/);
-              if (mName) {
-                if (cur) repos.push(cur);
-                cur = { name: mName[1].trim(), paths: [] };
-                continue;
-              }
-
-              const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
-              if (mInline && cur) {
-                cur.paths = mInline[1]
-                  .split(',')
-                  .map(s => s.trim().replace(/^['"]|['"]$/g, ''))
-                  .filter(Boolean);
-                continue;
-              }
-
-              const mPathsKey = l.match(/^\s*paths:\s*$/);
-              if (mPathsKey && cur) {
-                let j = i + 1;
-                while (j < lines.length && /^\s+-\s+/.test(lines[j])) {
-                  const mItem = lines[j].match(/^\s*-\s+(.+)\s*$/);
-                  if (mItem) cur.paths.push(mItem[1].trim());
-                  j++;
-                }
-              }
-            }
-            if (cur) repos.push(cur);
-
-            if (!repos.length) {
-              core.setFailed("No repos in config. Expected a top-level 'repos:' list.");
-              return;
-            }
-
-            const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
-            core.setOutput('matrix', JSON.stringify(matrix));
-            core.info(`Matrix: ${JSON.stringify(matrix)}`);
-          result-encoding: string
+          # Wrap into matrix.include
+          matrix=$(jq -c '{include: .}' <<<"$json")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Built matrix: $matrix"
 
   per-repo:
     name: Build report for ${{ matrix.repo }}
@@ -142,5 +101,5 @@ jobs:
             echo
             echo "Артефакты доступны в разделе **Artifacts**:"
             echo "- Имя: \`<owner/repo>-<prev>__<curr>\` (например, \`khandramai/a-1.2.3__1.2.4\`)"
-            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по указанным папкам"
+            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по указанным путям"
           } >> "$GITHUB_STEP_SUMMARY"
