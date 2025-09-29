@@ -17,7 +17,6 @@ permissions:
 
 jobs:
   per-repo:
-    name: Build per-repo report
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -57,11 +56,12 @@ jobs:
           TO="${{ steps.tags.outputs.to }}"
           FOLDER="${{ inputs.path }}"
 
-          # санитизация имени для файлов и артефактов
+          # Санитизация owner/repo → owner__repo
           SAFE_REPO="${{ matrix.repo }}"
           SAFE_REPO="${SAFE_REPO//\//__}"
 
           OUT="${SAFE_REPO}-${FOLDER}-tags-diff.md"
+          ARTIFACT_NAME="${SAFE_REPO}-${FOLDER}-tags-report"
 
           echo "# ${FOLDER} changes in ${{ matrix.repo }}" > "$OUT"
           echo "- From: $FROM" >> "$OUT"
@@ -69,7 +69,6 @@ jobs:
           echo "" >> "$OUT"
 
           CHANGES=$(git diff --name-status "$FROM" "$TO" -- "$FOLDER/" || true)
-
           if [[ -z "$CHANGES" ]]; then
             echo "_No changes in $FOLDER_" >> "$OUT"
           else
@@ -82,18 +81,17 @@ jobs:
           fi
 
           echo "out=$OUT" >> $GITHUB_OUTPUT
-          echo "safe=$SAFE_REPO" >> $GITHUB_OUTPUT
+          echo "artifact=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload per-repo artifact
         if: steps.tags.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          # ✅ используем санитизированное имя
-          name: ${{ steps.rep.outputs.safe }}-${{ inputs.path }}-tags-report
+          # ✅ теперь используем уже санитизированное имя
+          name: ${{ steps.rep.outputs.artifact }}
           path: ${{ steps.rep.outputs.out }}
 
   aggregate:
-    name: Combine reports
     runs-on: ubuntu-latest
     needs: per-repo
 
