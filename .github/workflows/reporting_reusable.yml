@@ -8,7 +8,7 @@ on:
         required: true
         default: '["khandramai/a","khandramai/b"]'
       path:
-        description: 'diff'
+        description: 'Каталог для диффа'
         required: true
         default: 'ramls'
 
@@ -25,9 +25,11 @@ jobs:
         repo: ${{ fromJson(inputs.repos_json) }}
 
     steps:
+      # 🔎 Дебаг: убеждаемся, что получили корректное имя репо
       - name: Debug repo name
         run: echo "Repo to checkout: ${{ matrix.repo }}"
 
+      # (опционально) самопроверка PAT
       - name: Verify PAT visibility
         if: ${{ secrets.GH_PAT }}
         env:
@@ -42,15 +44,17 @@ jobs:
       - name: Checkout ${{ matrix.repo }}
         uses: actions/checkout@v4
         with:
-          repository: ${{ matrix.repo }}     
+          repository: ${{ matrix.repo }}      # например: owner/a
           fetch-depth: 0
           fetch-tags: true
+          # Для приватных репозиториев используйте PAT, добавленный в c как секрет GH_PAT
           token: ${{ secrets.GH_PAT || github.token }}
 
       - name: Pick last two tags
         id: tags
         shell: bash
         run: |
+          # Берём по дате создания два последних тега
           mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
           if [[ "${#TAGS[@]}" -lt 2 ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -69,7 +73,7 @@ jobs:
           FROM="${{ steps.tags.outputs.from }}"
           TO="${{ steps.tags.outputs.to }}"
           FOLDER="${{ inputs.path }}"
-          SAFE_REPO="${{ matrix.repo }}"; SAFE_REPO="${SAFE_REPO//\//__}"
+          SAFE_REPO="${{ matrix.repo }}"; SAFE_REPO="${SAFE_REPO//\//__}"   # sanitize для имён
           OUT="${SAFE_REPO}-${FOLDER}-tags-diff.md"
 
           echo "# ${FOLDER} changes in ${{ matrix.repo }}" > "$OUT"
@@ -96,13 +100,16 @@ jobs:
             done <<< "$CHANGES"
           fi
 
+          # отдаём пути/имена наружу
           echo "out=$OUT" >> $GITHUB_OUTPUT
+          echo "safe=$SAFE_REPO" >> $GITHUB_OUTPUT
 
       - name: Upload per-repo artifact
         if: steps.tags.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.repo }}-${{ inputs.path }}-tags-report
+          # ⚠️ используем санитизированное имя без слеша
+          name: ${{ steps.rep.outputs.safe }}-${{ inputs.path }}-tags-report
           path: ${{ steps.rep.outputs.out }}
 
   aggregate:
