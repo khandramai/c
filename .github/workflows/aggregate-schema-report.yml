@@ -31,43 +31,28 @@ jobs:
         name: Build matrix from config
         uses: actions/github-script@v7
         with:
-          # Можешь передать путь явно (иначе возьмётся из workflow_dispatch или дефолт)
+          # ВАЖНО: пробрасываем вход, чтобы core.getInput('config_path') НЕ был пустым
           config_path: ${{ github.event.inputs.config_path }}
           script: |
             const fs = require('fs');
+            const core = require('@actions/core');
 
-            // 1) попытаемся взять путь, переданный в 'with'
-            const inputCfg = core.getInput('config_path'); // может быть '' если не передан
-            // 2) попытаемся прочитать из workflow_dispatch (через GITHUB_EVENT_PATH)
-            let dispatchCfg = '';
-            try {
-              const eventPath = process.env.GITHUB_EVENT_PATH;
-              if (eventPath && fs.existsSync(eventPath)) {
-                const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
-                if (event && event.inputs && typeof event.inputs.config_path === 'string') {
-                  dispatchCfg = event.inputs.config_path;
-                }
-              }
-            } catch (e) {
-              core.warning(`Failed to read GITHUB_EVENT_PATH: ${e.message}`);
-            }
-            // 3) дефолт
-            const fallbackCfg = '.github/schema-repos.yml';
+            // Берём путь из input или ставим дефолт
+            const cfgPathInput = core.getInput('config_path');
+            const cfgPath = (cfgPathInput && cfgPathInput.trim().length > 0)
+              ? cfgPathInput.trim()
+              : '.github/schema-repos.yml';
 
-            const candidates = [inputCfg, dispatchCfg, fallbackCfg].map(s => (s || '').trim());
-            const cfgPath = candidates.find(s => s.length > 0) || fallbackCfg;
-
-            core.info(`Config path resolved to: ${cfgPath}`);
+            core.info(`Reading config from: ${cfgPath}`);
 
             if (!fs.existsSync(cfgPath)) {
-              core.setFailed(`Config file not found at: ${cfgPath}. Make sure it exists in the checked-out repo.`);
+              core.setFailed(`Config file not found at: ${cfgPath}`);
               return;
             }
 
             const raw = fs.readFileSync(cfgPath, 'utf8');
 
-            // --- Простой парсер нашего формата YAML ---
-            // Ожидается структура:
+            // Парсим ожидаемую структуру YAML "в лоб"
             // repos:
             //   - name: khandramai/a
             //     paths: ["ramlsa"]
@@ -84,7 +69,6 @@ jobs:
             for (; i < lines.length; i++) {
               const l = lines[i];
 
-              // Новая запись репозитория
               const mName = l.match(/^\s*-\s*name:\s*(.+)\s*$/);
               if (mName) {
                 if (cur) repos.push(cur);
@@ -92,7 +76,6 @@ jobs:
                 continue;
               }
 
-              // Инлайн массив путей: paths: ["a","b"]
               const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
               if (mInline && cur) {
                 cur.paths = mInline[1]
@@ -102,7 +85,6 @@ jobs:
                 continue;
               }
 
-              // Блочный список путей:
               const mPathsKey = l.match(/^\s*paths:\s*$/);
               if (mPathsKey && cur) {
                 let j = i + 1;
@@ -120,18 +102,9 @@ jobs:
               return;
             }
 
-            // sanity: имя и хотя бы пустой массив путей
-            for (const r of repos) {
-              if (!r.name || typeof r.name !== 'string') {
-                core.setFailed("Invalid config: every repo entry must have 'name'.");
-                return;
-              }
-              if (!Array.isArray(r.paths)) r.paths = [];
-            }
-
             const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
             core.setOutput('matrix', JSON.stringify(matrix));
-            core.info(`Matrix built: ${JSON.stringify(matrix)}`);
+            core.info(`Matrix: ${JSON.stringify(matrix)}`);
           result-encoding: string
 
   per-repo:
