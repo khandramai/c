@@ -10,7 +10,7 @@ jobs:
       - name: Trigger reporting_action_poc.yml in changes-reporting-poc
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.REPORTING_TRIGGER_PAT }}
+          github-token: ${{ secrets.REPO_ACCESS_TOKEN }}
           script: |
             await github.rest.actions.createWorkflowDispatch({
               owner: 'khandramai',
