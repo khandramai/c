@@ -1,0 +1,69 @@
+name: Переиспользуемая проверка схем
+
+on:
+  workflow_call:
+    inputs:
+      pull_request_number:
+        required: true
+        type: number
+      head_sha:
+        required: true
+        type: string
+      base_sha:
+        required: true
+        type: string
+      schema_path:
+        required: true
+        type: string
+        default: 'src/schemas' # Настройте путь
+
+jobs:
+  check_diff_and_comment:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # Нужно для комментирования PR
+    steps:
+      - name: Checkout Base Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.base_sha }}
+          path: base
+          fetch-depth: 0
+
+      - name: Checkout Head Branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.head_sha }}
+          path: head
+          fetch-depth: 0
+
+      - name: Сравнение схем и генерация отчета
+        id: diff
+        run: |
+          # ВСТАВЬТЕ СЮДА ВАШУ ЛОГИКУ СРАВНЕНИЯ (из reporting_action_poc.yml)!
+          # Используйте пути 'base/${{ inputs.schema_path }}' и 'head/${{ inputs.schema_path }}'
+          
+          # Пример логики:
+          DIFF_OUTPUT=$(diff -r head/${{ inputs.schema_path }} base/${{ inputs.schema_path }} || true)
+          if [ -z "$DIFF_OUTPUT" ]; then
+            REPORT="🎉 Изменений в схемах не обнаружено."
+            HAS_CHANGES="false"
+          else
+            REPORT="## Обнаружены изменения в схемах (PR #${{ inputs.pull_request_number }}):\n\n\`\`\`diff\n$DIFF_OUTPUT\n\`\`\`"
+            REPORT="${REPORT//'%'/'%25'}" # Экранирование для корректного вывода
+            REPORT="${REPORT//$'\n'/'%0A'}" 
+            REPORT="${REPORT//$'\r'/'%0D'}" 
+            HAS_CHANGES="true"
+          fi
+          
+          echo "report_body=$REPORT" >> $GITHUB_OUTPUT
+          echo "has_changes=$HAS_CHANGES" >> $GITHUB_OUTPUT
+
+      - name: Оставить комментарий в PR
+        if: steps.diff.outputs.has_changes == 'true'
+        uses: thollander/comment-action@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          pr_number: ${{ inputs.pull_request_number }}
+          message: ${{ steps.diff.outputs.report_body }}

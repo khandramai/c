@@ -1,0 +1,152 @@
+name: Генерация общего отчета по схемам
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository_a:
+        description: 'Репозиторий A (owner/repo)'
+        required: true
+        default: 'khandramai/a'
+      repository_b:
+        description: 'Репозиторий B (owner/repo)'
+        required: true
+        default: 'khandramai/b'
+      schema_path_a:
+        description: 'Путь к схемам в A (от корня)'
+        required: true
+        default: 'ramls' # Настройте путь
+      schema_path_b:
+        description: 'Путь к схемам в B (от корня)'
+        required: true
+        default: 'ramls' # Настройте путь
+
+jobs:
+  generate_reports:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # ... [Шаги по установке jq, определению тегов A и B, клонированию A и B по тегам] ...
+      # Эти шаги полностью совпадают с ранее предоставленным кодом.
+      # Используйте ${{ secrets.REPO_ACCESS_TOKEN }} для клонирования и API-запросов.
+
+      # --- Определение тегов (шаги tags_a и tags_b) ---
+      - name: Установка jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Определение тегов для A
+        id: tags_a
+        env:
+          REPO_A: ${{ github.event.inputs.repository_a }}
+          GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          TAGS=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$REPO_A/tags?per_page=100" | jq -r 'sort_by(.commit.commit.author.date) | reverse | .[0:2] | .[] | .name')
+          CURRENT_TAG=$(echo "$TAGS" | head -n 1)
+          PREVIOUS_TAG=$(echo "$TAGS" | tail -n 1)
+          if [ -z "$CURRENT_TAG" ]; then echo "::error::Нет тегов в $REPO_A"; exit 1; fi
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+      - name: Определение тегов для B
+        id: tags_b
+        env:
+          REPO_B: ${{ github.event.inputs.repository_b }}
+          GH_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}
+        run: |
+          TAGS=$(curl -s -H "Authorization: token $GH_TOKEN" "https://api.github.com/repos/$REPO_B/tags?per_page=100" | jq -r 'sort_by(.commit.commit.author.date) | reverse | .[0:2] | .[] | .name')
+          CURRENT_TAG=$(echo "$TAGS" | head -n 1)
+          PREVIOUS_TAG=$(echo "$TAGS" | tail -n 1)
+          if [ -z "$CURRENT_TAG" ]; then echo "::error::Нет тегов в $REPO_B"; exit 1; fi
+          echo "current_tag=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous_tag=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+      # --- Клонирование репозиториев A и B по тегам ---
+      - name: Checkout A (Current)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_a }}
+          ref: ${{ steps.tags_a.outputs.current_tag }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          path: repo_a/current
+
+      - name: Checkout A (Previous)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_a }}
+          ref: ${{ steps.tags_a.outputs.previous_tag }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          path: repo_a/previous
+
+      - name: Checkout B (Current)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_b }}
+          ref: ${{ steps.tags_b.outputs.current_tag }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          path: repo_b/current
+
+      - name: Checkout B (Previous)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.inputs.repository_b }}
+          ref: ${{ steps.tags_b.outputs.previous_tag }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
+          path: repo_b/previous
+
+      # --- Запуск логики для репозитория A ---
+      - name: Генерация отчета A
+        id: report_a
+        run: |
+          # ВСТАВЬТЕ СЮДА ВАШУ ЛОГИКУ СРАВНЕНИЯ!
+          # Используйте пути: 
+          # current_path: repo_a/current/${{ github.event.inputs.schema_path_a }}
+          # previous_path: repo_a/previous/${{ github.event.inputs.schema_path_a }}
+          
+          # Пример:
+          REPORT_A=$(diff -r repo_a/current/${{ github.event.inputs.schema_path_a }} repo_a/previous/${{ github.event.inputs.schema_path_a }} || true)
+          if [ -z "$REPORT_A" ]; then
+            echo "Изменений в A нет." > report_a.txt
+          else
+            echo "Обнаружены изменения в A:" > report_a.txt
+            echo "\`\`\`diff" >> report_a.txt
+            echo "$REPORT_A" >> report_a.txt
+            echo "\`\`\`" >> report_a.txt
+          fi
+
+
+      # --- Запуск логики для репозитория B ---
+      - name: Генерация отчета B
+        id: report_b
+        run: |
+          # ВСТАВЬТЕ СЮДА ВАШУ ЛОГИКУ СРАВНЕНИЯ!
+          # Используйте пути: 
+          # current_path: repo_b/current/${{ github.event.inputs.schema_path_b }}
+          # previous_path: repo_b/previous/${{ github.event.inputs.schema_path_b }}
+          
+          # Пример:
+          REPORT_B=$(diff -r repo_b/current/${{ github.event.inputs.schema_path_b }} repo_b/previous/${{ github.event.inputs.schema_path_b }} || true)
+          if [ -z "$REPORT_B" ]; then
+            echo "Изменений в B нет." > report_b.txt
+          else
+            echo "Обнаружены изменения в B:" > report_b.txt
+            echo "\`\`\`diff" >> report_b.txt
+            echo "$REPORT_B" >> report_b.txt
+            echo "\`\`\`" >> report_b.txt
+          fi
+
+      # --- Объединение и Загрузка ---
+      - name: Объединение отчетов
+        run: |
+          echo "# Общий отчет об изменениях в схемах" > final_report.md
+          echo "## Репозиторий A (${{ steps.tags_a.outputs.previous_tag }} -> ${{ steps.tags_a.outputs.current_tag }})" >> final_report.md
+          cat report_a.txt >> final_report.md
+          echo "" >> final_report.md
+          echo "## Репозиторий B (${{ steps.tags_b.outputs.previous_tag }} -> ${{ steps.tags_b.outputs.current_tag }})" >> final_report.md
+          cat report_b.txt >> final_report.md
+
+      - name: Загрузка артефакта (Общий отчет)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Общий_Отчет_Схем_${{ github.run_id }}
+          path: final_report.md
+          retention-days: 7
