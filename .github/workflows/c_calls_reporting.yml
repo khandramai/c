@@ -1,0 +1,15 @@
+# .github/workflows/c_calls_reporting.yml
+name: Call reporting for module C
+
+on:
+  push:
+    paths:
+      - 'c/**'
+  workflow_dispatch:
+
+jobs:
+  call-reporting:
+    uses: ./.github/workflows/reporting_action_poc.yml
+    with:
+      module: 'c'
+    secrets: inherit   # если нужны секреты из вызывающего
