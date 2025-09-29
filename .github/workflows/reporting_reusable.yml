@@ -6,7 +6,7 @@ on:
       repos_json:
         description: 'JSON-массив репозиториев: ["owner/a","owner/b"]'
         required: true
-        default: '["owner/a","owner/b"]'
+        default: '["khandramai/a","khandramai/b"]'
       path:
         description: 'Каталог для диффа'
         required: true
