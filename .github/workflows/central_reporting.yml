@@ -67,6 +67,7 @@ jobs:
           previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
           schemas-path: 'ramls'
         env:
+          # КРИТИЧЕСКИ ВАЖНО: Переопределение рабочей области
           GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
 
       # ==========================================================
@@ -105,6 +106,7 @@ jobs:
           previous-ref: ${{ steps.tags_b.outputs.previous-ref }}
           schemas-path: 'ramls'
         env:
+          # КРИТИЧЕСКИ ВАЖНО: Переопределение рабочей области
           GITHUB_WORKSPACE: ${{ github.workspace }}/b-repo
 
       # ==========================================================
