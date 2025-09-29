@@ -1,0 +1,5 @@
+repos:
+  - name: khandramai/a
+    paths: ["ramlsa"]
+  - name: khandramai/b
+    paths: ["ramlsb"]
