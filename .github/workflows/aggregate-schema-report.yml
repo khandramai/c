@@ -31,19 +31,43 @@ jobs:
         name: Build matrix from config
         uses: actions/github-script@v7
         with:
-          # ПРОБРАСЫВАЕМ input в сам шаг, чтобы core.getInput() вернул путь
+          # Можешь передать путь явно (иначе возьмётся из workflow_dispatch или дефолт)
           config_path: ${{ github.event.inputs.config_path }}
           script: |
             const fs = require('fs');
 
-            // Получаем путь из inputs этого шага
-            const cfgPath = core.getInput('config_path') || '.github/schema-repos.yml';
-            core.info(`Reading config from: ${cfgPath}`);
+            // 1) попытаемся взять путь, переданный в 'with'
+            const inputCfg = core.getInput('config_path'); // может быть '' если не передан
+            // 2) попытаемся прочитать из workflow_dispatch (через GITHUB_EVENT_PATH)
+            let dispatchCfg = '';
+            try {
+              const eventPath = process.env.GITHUB_EVENT_PATH;
+              if (eventPath && fs.existsSync(eventPath)) {
+                const event = JSON.parse(fs.readFileSync(eventPath, 'utf8'));
+                if (event && event.inputs && typeof event.inputs.config_path === 'string') {
+                  dispatchCfg = event.inputs.config_path;
+                }
+              }
+            } catch (e) {
+              core.warning(`Failed to read GITHUB_EVENT_PATH: ${e.message}`);
+            }
+            // 3) дефолт
+            const fallbackCfg = '.github/schema-repos.yml';
 
-            // Читаем файл
+            const candidates = [inputCfg, dispatchCfg, fallbackCfg].map(s => (s || '').trim());
+            const cfgPath = candidates.find(s => s.length > 0) || fallbackCfg;
+
+            core.info(`Config path resolved to: ${cfgPath}`);
+
+            if (!fs.existsSync(cfgPath)) {
+              core.setFailed(`Config file not found at: ${cfgPath}. Make sure it exists in the checked-out repo.`);
+              return;
+            }
+
             const raw = fs.readFileSync(cfgPath, 'utf8');
 
-            // Простой парсер для ожидаемой структуры:
+            // --- Простой парсер нашего формата YAML ---
+            // Ожидается структура:
             // repos:
             //   - name: khandramai/a
             //     paths: ["ramlsa"]
@@ -55,8 +79,8 @@ jobs:
             let i = 0;
             while (i < lines.length && !/^repos:/.test(lines[i].trim())) i++;
             i++;
-            let cur = null;
 
+            let cur = null;
             for (; i < lines.length; i++) {
               const l = lines[i];
 
@@ -68,7 +92,7 @@ jobs:
                 continue;
               }
 
-              // Инлайн массив путей: paths: ["a", "b"]
+              // Инлайн массив путей: paths: ["a","b"]
               const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
               if (mInline && cur) {
                 cur.paths = mInline[1]
@@ -78,7 +102,7 @@ jobs:
                 continue;
               }
 
-              // Начало блочного списка путей:
+              // Блочный список путей:
               const mPathsKey = l.match(/^\s*paths:\s*$/);
               if (mPathsKey && cur) {
                 let j = i + 1;
@@ -92,12 +116,22 @@ jobs:
             if (cur) repos.push(cur);
 
             if (!repos.length) {
-              core.setFailed("No repos in config. Make sure the file has a top-level 'repos:' list.");
-            } else {
-              const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
-              core.setOutput('matrix', JSON.stringify(matrix));
-              core.info(`Matrix: ${JSON.stringify(matrix)}`);
+              core.setFailed("No repos in config. Expected a top-level 'repos:' list.");
+              return;
             }
+
+            // sanity: имя и хотя бы пустой массив путей
+            for (const r of repos) {
+              if (!r.name || typeof r.name !== 'string') {
+                core.setFailed("Invalid config: every repo entry must have 'name'.");
+                return;
+              }
+              if (!Array.isArray(r.paths)) r.paths = [];
+            }
+
+            const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
+            core.setOutput('matrix', JSON.stringify(matrix));
+            core.info(`Matrix built: ${JSON.stringify(matrix)}`);
           result-encoding: string
 
   per-repo:
