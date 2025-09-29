@@ -29,7 +29,7 @@ jobs:
       - name: Debug repo name
         run: echo "Repo to checkout: ${{ matrix.repo }}"
 
-      # (опционально) самопроверка PAT
+      # (опционально) самопроверка PAT на доступ к внешнему репо
       - name: Verify PAT visibility
         if: ${{ secrets.GH_PAT }}
         env:
@@ -101,7 +101,7 @@ jobs:
           fi
 
           # отдаём пути/имена наружу
-          echo "out=$OUT" >> $GITHUB_OUTPUT
+          echo "out=$OUT"  >> $GITHUB_OUTPUT
           echo "safe=$SAFE_REPO" >> $GITHUB_OUTPUT
 
       - name: Upload per-repo artifact
