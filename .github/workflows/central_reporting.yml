@@ -22,7 +22,6 @@ jobs:
 
     steps:
       - name: Checkout Central Repo (c) to get Action logic
-        # Клонирование самого себя, чтобы иметь доступ к Action logic
         uses: actions/checkout@v4
 
       - name: Configure Git
@@ -43,28 +42,30 @@ jobs:
         id: tags_a
         working-directory: ./a-repo
         run: |
-          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          # Текущий референс: последний тег или HEAD
+          CURRENT_REF=$(git describe --tags --abbrev=0 2>/dev/null || echo ${{ github.sha }})
           
-          # Логика для надежного получения второго с конца тега. Если тегов меньше двух, используем флаг NOT_FOUND.
+          # Находим SHA второго с конца тега.
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
+          
           if [ -z "$PREVIOUS_TAG_HASH" ]; then
-              PREVIOUS_REF="NOT_FOUND" 
+              # Если тегов меньше двух, используем SHA первого коммита
+              PREVIOUS_REF=$(git rev-list --max-parents=0 HEAD | head -n 1)
           else
+              # Используем SHA второго с конца тега
               PREVIOUS_REF=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null)
           fi
 
-          echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "current-ref=$CURRENT_REF" >> $GITHUB_OUTPUT
           echo "previous-ref=$PREVIOUS_REF" >> $GITHUB_OUTPUT
 
       - name: Compare A Schemas and Generate Report
         id: compare_a
-        # Использование локального Action: ./.github/actions/compare-schemas
         uses: ./.github/actions/compare-schemas
         with:
           current-ref: ${{ steps.tags_a.outputs.current-ref }}
           previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
           schemas-path: 'ramls'
-        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
 
@@ -83,16 +84,17 @@ jobs:
         id: tags_b
         working-directory: ./b-repo
         run: |
-          CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          CURRENT_REF=$(git describe --tags --abbrev=0 2>/dev/null || echo ${{ github.sha }})
           
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
+          
           if [ -z "$PREVIOUS_TAG_HASH" ]; then
-              PREVIOUS_REF="NOT_FOUND" 
+              PREVIOUS_REF=$(git rev-list --max-parents=0 HEAD | head -n 1)
           else
               PREVIOUS_REF=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null)
           fi
 
-          echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "current-ref=$CURRENT_REF" >> $GITHUB_OUTPUT
           echo "previous-ref=$PREVIOUS_REF" >> $GITHUB_OUTPUT
 
       - name: Compare B Schemas and Generate Report
