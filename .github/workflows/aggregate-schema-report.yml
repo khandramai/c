@@ -1,0 +1,106 @@
+name: Aggregate Schema Diff Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_path:
+        description: "Path to repos config (YAML)"
+        default: ".github/schema-repos.yml"
+        required: true
+      tag_selector:
+        description: "Tag selection: auto | latest | pattern:<regex>"
+        default: "auto"
+        required: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.mk.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: mk
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = core.getInput('config_path');
+            const raw = fs.readFileSync(path, 'utf8');
+
+            const repos = [];
+            const lines = raw.split(/\r?\n/);
+            let i=0;
+            while (i<lines.length && !/^repos:/.test(lines[i].trim())) i++;
+            i++;
+            let cur=null;
+            for (; i<lines.length; i++){
+              const l = lines[i];
+              const mName = l.match(/^\s*-\s*name:\s*(.+)\s*$/);
+              if (mName) {
+                if (cur) repos.push(cur);
+                cur = { name: mName[1].trim(), paths: [] };
+                continue;
+              }
+              const mInline = l.match(/^\s*paths:\s*\[(.+)\]\s*$/);
+              if (mInline && cur) {
+                cur.paths = mInline[1].split(',').map(s=>s.trim().replace(/^['"]|['"]$/g,''));
+                continue;
+              }
+              const mPathsKey = l.match(/^\s*paths:\s*$/);
+              if (mPathsKey && cur) {
+                let j=i+1;
+                while (j<lines.length && /^\s+-\s+/.test(lines[j])) {
+                  const mItem = lines[j].match(/^\s*-\s+(.+)\s*$/);
+                  if (mItem) cur.paths.push(mItem[1].trim());
+                  j++;
+                }
+              }
+            }
+            if (cur) repos.push(cur);
+            if (!repos.length) core.setFailed("No repos in config.");
+
+            const matrix = { include: repos.map(r => ({ repo: r.name, paths: r.paths })) };
+            core.setOutput('matrix', JSON.stringify(matrix));
+
+  per-repo:
+    name: Build report for ${{ matrix.repo }}
+    needs: build-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.build-matrix.outputs.matrix) }}
+    steps:
+      - name: Run schema diff
+        id: run
+        uses: ./.github/actions/schema-diff
+        with:
+          repo: ${{ matrix.repo }}
+          paths_json: ${{ toJson(matrix.paths) }}
+          tag_selector: ${{ github.event.inputs.tag_selector }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "${{ matrix.repo }}-${{ steps.run.outputs.prev_tag }}__${{ steps.run.outputs.curr_tag }}"
+          path: ${{ steps.run.outputs.report_dir }}
+          if-no-files-found: error
+
+  aggregate:
+    name: Aggregate summary
+    needs: per-repo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summary
+        run: |
+          {
+            echo "# Combined Schema Diff Report"
+            echo
+            echo "Артефакты доступны в разделе **Artifacts**:"
+            echo "- Имя: \`<owner/repo>-<prev>__<curr>\` (например, \`khandramai/a-1.2.3__1.2.4\`)"
+            echo "- Содержимое: \`README.md\` + сабрепорты (.md) по папкам \`ramlsa\` и \`ramlsb\`"
+          } >> "$GITHUB_STEP_SUMMARY"

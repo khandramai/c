@@ -1,5 +1,5 @@
 repos:
   - name: khandramai/a
-    paths: ["ramlsa"]
+    paths: ["ramls"]
   - name: khandramai/b
-    paths: ["ramlsb"]
+    paths: ["ramls"]
