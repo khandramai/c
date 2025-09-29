@@ -1,15 +1,20 @@
-# .github/workflows/c_calls_reporting.yml
-name: Call reporting for module C
-
+# repo A: .github/workflows/reporting_action_poc.yml
+name: Reporting POC
 on:
-  push:
-    paths:
-      - 'c/**'
-  workflow_dispatch:
-
+  workflow_call:
+    inputs:
+      module:
+        description: "Which module triggered"
+        required: true
+        type: string
+    secrets:
+      PAT:
+        required: false
+permissions:
+  contents: read  # укажите минимум, что нужно внутри этого workflow
 jobs:
-  call-reporting:
-    uses: ./.github/workflows/reporting_action_poc.yml
-    with:
-      module: 'c'
-    secrets: inherit   # если нужны секреты из вызывающего
+  run-report:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Module is ${{ inputs.module }}"
