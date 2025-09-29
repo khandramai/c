@@ -29,10 +29,9 @@ runs:
         PREVIOUS_REF="${{ inputs.previous-ref }}"
         SCHEMAS_PATH="${{ inputs.schemas-path }}"
         
-        # Проверяем, существует ли обе ревизии. Наша логика получения тегов гарантирует их валидность.
+        # Проверяем существование обеих ревизий.
         if git rev-parse --verify --quiet "$PREVIOUS_REF" && git rev-parse --verify --quiet "$CURRENT_REF"; then
         
-            # Используем git diff для сравнения папки между двумя ревизиями
             DIFF_OUTPUT=$(git diff --name-status "$PREVIOUS_REF" "$CURRENT_REF" -- "$SCHEMAS_PATH")
         
             if [ -z "$DIFF_OUTPUT" ]; then
@@ -76,7 +75,7 @@ runs:
             echo "Проверьте теги или вводы." >> $REPORT_FILE
         fi
         
-        # Передаем отчет как выходные данные (экранирование)
+        # Передаем отчет как выходные данные
         REPORT_CONTENT=$(cat $REPORT_FILE)
         REPORT_CONTENT="${REPORT_CONTENT//'%'/'%25'}"
         REPORT_CONTENT="${REPORT_CONTENT//$'\n'/'%0A'}"

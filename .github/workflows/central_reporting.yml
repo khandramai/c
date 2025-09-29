@@ -34,6 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: khandramai/${{ github.event.inputs.repo_a_name }}
+          # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           path: a-repo
           fetch-depth: 0
@@ -42,17 +43,14 @@ jobs:
         id: tags_a
         working-directory: ./a-repo
         run: |
-          # Текущий референс: последний тег или HEAD
           CURRENT_REF=$(git describe --tags --abbrev=0 2>/dev/null || echo ${{ github.sha }})
           
-          # Находим SHA второго с конца тега.
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
           
           if [ -z "$PREVIOUS_TAG_HASH" ]; then
-              # Если тегов меньше двух, используем SHA первого коммита
+              # Надежное получение SHA первого коммита
               PREVIOUS_REF=$(git rev-list --max-parents=0 HEAD | head -n 1)
           else
-              # Используем SHA второго с конца тега
               PREVIOUS_REF=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null)
           fi
 
@@ -67,7 +65,6 @@ jobs:
           previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
           schemas-path: 'ramls'
         env:
-          # КРИТИЧЕСКИ ВАЖНО: Переопределение рабочей области
           GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
 
       # ==========================================================
@@ -77,6 +74,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: khandramai/${{ github.event.inputs.repo_b_name }}
+          # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           path: b-repo
           fetch-depth: 0
@@ -106,7 +104,6 @@ jobs:
           previous-ref: ${{ steps.tags_b.outputs.previous-ref }}
           schemas-path: 'ramls'
         env:
-          # КРИТИЧЕСКИ ВАЖНО: Переопределение рабочей области
           GITHUB_WORKSPACE: ${{ github.workspace }}/b-repo
 
       # ==========================================================
