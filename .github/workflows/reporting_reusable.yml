@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       repos_json:
-        description: 'JSON-массив репозиториев: ["your-org/a","your-org/b"]'
+        description: 'JSON-массив репозиториев: ["owner/a","owner/b"]'
         required: true
-        default: '["khandramai/a","khandramai/b"]'
+        default: '["owner/a","owner/b"]'
       path:
-        description: 'Diff'
+        description: 'Каталог для диффа'
         required: true
         default: 'ramls'
 
@@ -31,12 +31,14 @@ jobs:
           repository: ${{ matrix.repo }}
           fetch-depth: 0
           fetch-tags: true
+          # Для приватных репо используйте PAT, добавленный в c как секрет GH_PAT
           token: ${{ secrets.GH_PAT || github.token }}
 
-      - name: Pick last two tags
+      - name: Ensure tags exist
         id: tags
         shell: bash
         run: |
+          # Берём по дате создания два последних тега
           mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
           if [[ "${#TAGS[@]}" -lt 2 ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
@@ -45,7 +47,7 @@ jobs:
           echo "to=${TAGS[0]}"   >> $GITHUB_OUTPUT
           echo "from=${TAGS[1]}" >> $GITHUB_OUTPUT
 
-      - name: Build repo report (tags)
+      - name: Build repo report (diff in ${{ inputs.path }}/ between last two tags)
         if: steps.tags.outputs.skip != 'true'
         id: rep
         shell: bash
@@ -53,8 +55,8 @@ jobs:
           FROM="${{ steps.tags.outputs.from }}"
           TO="${{ steps.tags.outputs.to }}"
           FOLDER="${{ inputs.path }}"
-          SAFE="${{ matrix.repo }}"; SAFE="${SAFE//\//__}"
-          OUT="${SAFE}-${FOLDER}-tags-diff.md"
+          SAFE_REPO="${{ matrix.repo }}"; SAFE_REPO="${SAFE_REPO//\//__}"
+          OUT="${SAFE_REPO}-${FOLDER}-tags-diff.md"
 
           echo "# ${FOLDER} changes in ${{ matrix.repo }}" > "$OUT"
           echo "" >> "$OUT"
@@ -62,17 +64,27 @@ jobs:
           echo "- To tag:   \`$TO\`"   >> "$OUT"
           echo "" >> "$OUT"
 
+          # Имён и статусов внутри папки
           CHANGES=$(git diff --name-status "$FROM" "$TO" -- "$FOLDER/" || true)
+
           if [[ -z "$CHANGES" ]]; then
             echo "_No changes in \`$FOLDER/\`_" >> "$OUT"
           else
+            # Сводка A/M/D
+            ADDED=$(echo "$CHANGES" | awk '$1=="A"{c++} END{print c+0}')
+            MODF=$(echo "$CHANGES" | awk '$1=="M"{c++} END{print c+0}')
+            DELT=$(echo "$CHANGES" | awk '$1=="D"{c++} END{print c+0}')
+            echo "**Summary:** A=$ADDED, M=$MODF, D=$DELT" >> "$OUT"
+            echo "" >> "$OUT"
+
             echo "| Status | File |" >> "$OUT"
             echo "|------:|------|" >> "$OUT"
             while IFS=$'\t' read -r st file; do
-              [[ -z "$st\ $file" ]] && continue
+              [[ -z "$st" ]] && continue
               echo "| \`$st\` | \`$file\` |" >> "$OUT"
             done <<< "$CHANGES"
           fi
+
           echo "out=$OUT" >> $GITHUB_OUTPUT
 
       - name: Upload per-repo artifact
@@ -98,10 +110,13 @@ jobs:
         shell: bash
         run: |
           OUT="combined-${{ inputs.path }}-tags-report.md"
-          echo "# Combined ${{ inputs.path }} changes (last two tags)" > "$OUT"
+          echo "# Combined \`${{ inputs.path }}\` changes (last two tags)" > "$OUT"
           echo "" >> "$OUT"
+
           shopt -s globstar nullglob
+          found=0
           for f in reports/**/**/*.md reports/**/*.md; do
+            found=1
             echo "## $(basename "$f")" >> "$OUT"
             echo "" >> "$OUT"
             cat "$f" >> "$OUT"
@@ -109,6 +124,11 @@ jobs:
             echo "---" >> "$OUT"
             echo "" >> "$OUT"
           done
+
+          if [[ $found -eq 0 ]]; then
+            echo "_No per-repo reports were produced (probably missing tags)_" >> "$OUT"
+          fi
+
           echo "out=$OUT" >> $GITHUB_OUTPUT
 
       - name: Upload combined artifact
