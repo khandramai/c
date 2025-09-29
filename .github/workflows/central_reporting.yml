@@ -18,9 +18,13 @@ jobs:
 
     permissions:
       contents: read
-      actions: write # Для загрузки артефактов
+      actions: write
 
     steps:
+      - name: Checkout Central Repo (c) to get Action logic
+        # Клонирование самого себя, чтобы иметь доступ к Action logic
+        uses: actions/checkout@v4
+
       - name: Configure Git
         run: git config --global fetch.prune true
 
@@ -39,7 +43,6 @@ jobs:
         id: tags_a
         working-directory: ./a-repo
         run: |
-          # Автоматическое определение двух последних тегов для сравнения
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null || echo "initial")
@@ -49,13 +52,13 @@ jobs:
 
       - name: Compare A Schemas and Generate Report
         id: compare_a
-        # Используем локальный Action из репозитория c
-        uses: ./khandramai/c/.github/actions/compare-schemas
+        # ИСПРАВЛЕННЫЙ ПУТЬ: относительный путь в текущем репозитории
+        uses: ./.github/actions/compare-schemas
         with:
           current-ref: ${{ steps.tags_a.outputs.current-ref }}
           previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
           schemas-path: 'ramls'
-        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для локального Action
+        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action, чтобы он работал в папке a-repo
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
 
@@ -83,19 +86,17 @@ jobs:
 
       - name: Compare B Schemas and Generate Report
         id: compare_b
-        # Используем локальный Action
-        uses: ./khandramai/c/.github/actions/compare-schemas
+        # ИСПРАВЛЕННЫЙ ПУТЬ: относительный путь в текущем репозитории
+        uses: ./.github/actions/compare-schemas
         with:
           current-ref: ${{ steps.tags_b.outputs.current-ref }}
           previous-ref: ${{ steps.tags_b.outputs.previous-ref }}
           schemas-path: 'ramls'
-        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для локального Action
+        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action, чтобы он работал в папке b-repo
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}/b-repo
 
-      # ==========================================================
-      #                 Объединение и Артефакт
-      # ==========================================================
+      # ... (Остальная часть workflow без изменений)
       - name: Combine Reports
         run: |
           {
