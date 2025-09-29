@@ -1,12 +1,22 @@
-name: Call remote Reporting
+name: Run Remote Reporting
 
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      base:
+        description: "Optional base ref (tag/commit)"
+        required: false
+      head:
+        description: "Optional head ref (tag/commit)"
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
-  call-report:
+  call-remote:
     uses: khandramai/changes-reporting-poc/.github/workflows/reporting_action_poc.yml@main
-    permissions:
-      contents: read
-      pull-requests: write
-    secrets: inherit
+    with:
+      base: ${{ inputs.base }}
+      head: ${{ inputs.head }}
