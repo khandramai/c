@@ -1,9 +1,0 @@
-name: Centralized Changes Report
-
-on:
-  workflow_dispatch: {}
-
-jobs:
-  run-report:
-    uses: khandramai/changes-reporting-poc/.github/workflows/reporting_action_poc.yml@main
-    secrets: inherit
