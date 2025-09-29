@@ -3,108 +3,119 @@ name: Centralized Schema Reporting
 on:
   workflow_dispatch:
     inputs:
-      repo_a_path:
-        description: 'Путь к папке схемы в репозитории A (от корня репо)'
+      repo_a_name:
+        description: 'Имя репозитория A'
         required: true
-        default: 'schemas/a' # Пример: измените на ваш реальный путь
-      repo_b_path:
-        description: 'Путь к папке схемы в репозитории B (от корня репо)'
+        default: 'a'
+      repo_b_name:
+        description: 'Имя репозитория B'
         required: true
-        default: 'schemas/b' # Пример: измените на ваш реальный путь
+        default: 'b'
 
 jobs:
   generate_combined_report:
     runs-on: ubuntu-latest
 
-    # Требуется разрешение для записи (для создания артефакта)
     permissions:
       contents: read
-      actions: write
+      actions: write # Для загрузки артефактов
 
     steps:
-      - name: Checkout Central Repository (c)
-        uses: actions/checkout@v4
-        with:
-          path: c-repo # Клонируем в отдельную папку
+      - name: Configure Git
+        run: git config --global fetch.prune true
 
-      # ----- Обработка репозитория A -----
-      - name: Checkout Module A
+      # ==========================================================
+      #                     Обработка Репозитория A
+      # ==========================================================
+      - name: Checkout Module A (khandramai/a)
         uses: actions/checkout@v4
         with:
-          repository: khandramai/a # Замените 'your_org/a' на реальный путь
-          token: ${{ secrets.REPO_ACCESS_TOKEN }} # Используем PAT для доступа к другому репо
+          repository: khandramai/${{ github.event.inputs.repo_a_name }}
+          token: ${{ secrets.REPO_ACCESS_TOKEN }}
           path: a-repo
-          fetch-depth: 0 # Требуется для тегов
+          fetch-depth: 0
 
-      - name: Get A Tags and Generate Report
-        id: report_a
+      - name: Get A Tags (Current and Previous)
+        id: tags_a
         working-directory: ./a-repo
         run: |
-          echo "--- Отчет для репозитория A (${{ github.event.inputs.repo_a_path }}) ---" > ../report_a.md
-          
-          # Получение тегов в репозитории A
+          # Автоматическое определение двух последних тегов для сравнения
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || echo "initial")
-          
-          echo "Текущий тег: $CURRENT_TAG" >> ../report_a.md
-          echo "Предыдущий тег: $PREVIOUS_TAG" >> ../report_a.md
-          
-          # Логика определения дифференса (ВАШ КОД ИЗ ИСХОДНОГО WORKFLOW)
-          # Здесь должен быть вызов вашего скрипта/логики, 
-          # который сравнивает схемы в папке ${{ github.event.inputs.repo_a_path }}
-          # между тегами $PREVIOUS_TAG и $CURRENT_TAG
-          #
-          # Пример (замените на ваш реальный код):
-          # git diff $PREVIOUS_TAG $CURRENT_TAG -- ${{ github.event.inputs.repo_a_path }} >> ../report_a.md
-          echo "Сравнение схем в папке ${{ github.event.inputs.repo_a_path }} (должен быть ваш скрипт):" >> ../report_a.md
-          echo "- Обнаружены 5 изменений." >> ../report_a.md
-          echo "---" >> ../report_a.md
+          PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null || echo "initial")
 
-      # ----- Обработка репозитория B -----
-      - name: Checkout Module B
+          echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous-ref=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare A Schemas and Generate Report
+        id: compare_a
+        # Используем локальный Action из репозитория c
+        uses: ./khandramai/c/.github/actions/compare-schemas
+        with:
+          current-ref: ${{ steps.tags_a.outputs.current-ref }}
+          previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
+          schemas-path: 'ramls'
+        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для локального Action
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
+
+      # ==========================================================
+      #                     Обработка Репозитория B
+      # ==========================================================
+      - name: Checkout Module B (khandramai/b)
         uses: actions/checkout@v4
         with:
-          repository: khandramai/b # Замените 'your_org/b' на реальный путь
+          repository: khandramai/${{ github.event.inputs.repo_b_name }}
           token: ${{ secrets.REPO_ACCESS_TOKEN }}
           path: b-repo
-          fetch-depth: 0 # Требуется для тегов
+          fetch-depth: 0
 
-      - name: Get B Tags and Generate Report
-        id: report_b
+      - name: Get B Tags (Current and Previous)
+        id: tags_b
         working-directory: ./b-repo
         run: |
-          echo "--- Отчет для репозитория B (${{ github.event.inputs.repo_b_path }}) ---" > ../report_b.md
-          
-          # Получение тегов в репозитории B
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 $CURRENT_TAG^ 2>/dev/null || echo "initial")
-          
-          echo "Текущий тег: $CURRENT_TAG" >> ../report_b.md
-          echo "Предыдущий тег: $PREVIOUS_TAG" >> ../report_b.md
-          
-          # Логика определения дифференса (ВАШ КОД ИЗ ИСХОДНОГО WORKFLOW)
-          # Здесь должен быть вызов вашего скрипта/логики
-          echo "Сравнение схем в папке ${{ github.event.inputs.repo_b_path }} (должен быть ваш скрипт):" >> ../report_b.md
-          echo "- Обнаружены 2 изменения." >> ../report_b.md
-          echo "---" >> ../report_b.md
+          PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null || echo "initial")
 
-      # ----- Объединение и публикация отчета -----
+          echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
+          echo "previous-ref=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare B Schemas and Generate Report
+        id: compare_b
+        # Используем локальный Action
+        uses: ./khandramai/c/.github/actions/compare-schemas
+        with:
+          current-ref: ${{ steps.tags_b.outputs.current-ref }}
+          previous-ref: ${{ steps.tags_b.outputs.previous-ref }}
+          schemas-path: 'ramls'
+        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для локального Action
+        env:
+          GITHUB_WORKSPACE: ${{ github.workspace }}/b-repo
+
+      # ==========================================================
+      #                 Объединение и Артефакт
+      # ==========================================================
       - name: Combine Reports
         run: |
-          # Создаем финальный объединенный отчет
-          echo "# Центральный отчет об изменениях схем" > combined_report.md
-          date >> combined_report.md
-          echo "" >> combined_report.md
+          {
+            echo "# 🌟 Центральный Отчет Об Изменениях Схем"
+            echo "Дата запуска: $(date)"
+            echo ""
           
-          cat report_a.md >> combined_report.md
-          echo "" >> combined_report.md
-          cat report_b.md >> combined_report.md
+            echo "## Модуль A: ${{ github.event.inputs.repo_a_name }}"
+            echo "Сравнение: \`${{ steps.tags_a.outputs.previous-ref }}...${{ steps.tags_a.outputs.current-ref }}\`"
+            echo "${{ steps.compare_a.outputs.report }}"
+            echo ""
           
-          cat combined_report.md # Вывод в лог
+            echo "## Модуль B: ${{ github.event.inputs.repo_b_name }}"
+            echo "Сравнение: \`${{ steps.tags_b.outputs.previous-ref }}...${{ steps.tags_b.outputs.current-ref }}\`"
+            echo "${{ steps.compare_b.outputs.report }}"
+          } > combined_report.md
 
       - name: Upload Combined Report Artifact
         uses: actions/upload-artifact@v4
         with:
           name: centralized-schema-report-${{ github.sha }}
           path: combined_report.md
-          retention-days: 5
+          retention-days: 7
