@@ -6,7 +6,7 @@ on:
       repos_json:
         description: 'JSON-массив репозиториев: ["owner/a","owner/b"]'
         required: true
-        default: '["khandramai/a","khandramai/b"]'
+        default: '["owner/a","owner/b"]'
       path:
         description: 'Каталог для диффа'
         required: true
@@ -49,34 +49,36 @@ jobs:
           echo "to=${TAGS[0]}"   >> $GITHUB_OUTPUT
           echo "from=${TAGS[1]}" >> $GITHUB_OUTPUT
 
-      # Санитизация owner/repo → owner__repo и формирование ИМЁН
+      # === Формируем БЕЗОПАСНЫЕ имена и кладём в GITHUB_ENV ===
       - name: Compute safe names (no slashes)
         if: steps.tags.outputs.skip != 'true'
-        id: idents
         shell: bash
         run: |
           set -e
-          REPO="${{ matrix.repo }}"
-          SAFE="${REPO//\//__}"                 # khandramai/a -> khandramai__a
+          REPO="${{ matrix.repo }}"              # owner/repo
+          SAFE="${REPO//\//__}"                  # owner__repo
           FOLDER="${{ inputs.path }}"
-          OUT_FILE="${SAFE}-${FOLDER}-tags-diff.md"
-          ARTIFACT_NAME="${SAFE}-${FOLDER}-tags-report"
-          echo "safe_repo=$SAFE" >> $GITHUB_OUTPUT
-          echo "out_file=$OUT_FILE" >> $GITHUB_OUTPUT
-          echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-          echo "DEBUG: safe_repo=$SAFE"
-          echo "DEBUG: out_file=$OUT_FILE"
-          echo "DEBUG: artifact_name=$ARTIFACT_NAME"
+          # уберём любые потенциально плохие символы
+          SAFE_CLEAN="$(echo "$SAFE" | tr -cd 'A-Za-z0-9._-')"
+          OUT_FILE="${SAFE_CLEAN}-${FOLDER}-tags-diff.md"
+          ARTIFACT_NAME="${SAFE_CLEAN}-${FOLDER}-tags-report"
+
+          echo "SAFE_REPO=$SAFE_CLEAN" >> $GITHUB_ENV
+          echo "OUT_FILE=$OUT_FILE" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> $GITHUB_ENV
+
+          echo "DEBUG SAFE_REPO=$SAFE_CLEAN"
+          echo "DEBUG OUT_FILE=$OUT_FILE"
+          echo "DEBUG ARTIFACT_NAME=$ARTIFACT_NAME"
 
       - name: Build repo report
         if: steps.tags.outputs.skip != 'true'
-        id: rep
         shell: bash
         run: |
           FROM="${{ steps.tags.outputs.from }}"
           TO="${{ steps.tags.outputs.to }}"
           FOLDER="${{ inputs.path }}"
-          OUT="${{ steps.idents.outputs.out_file }}"
+          OUT="${OUT_FILE}"
 
           echo "# ${FOLDER} changes in ${{ matrix.repo }}" > "$OUT"
           echo "- From: $FROM" >> "$OUT"
@@ -95,23 +97,24 @@ jobs:
             done <<< "$CHANGES"
           fi
 
-          echo "out=$OUT" >> $GITHUB_OUTPUT
-
-      - name: Debug artifact name to be used
+      - name: Safety check (artifact name)
         if: steps.tags.outputs.skip != 'true'
+        shell: bash
         run: |
-          echo "Artifact (sanitized): ${{ steps.idents.outputs.artifact_name }}"
-          case "${{ steps.idents.outputs.artifact_name }}" in
-            */*) echo "ERROR: artifact name contains slash"; exit 1;;
+          echo "Will upload artifact: ${ARTIFACT_NAME}"
+          case "${ARTIFACT_NAME}" in
+            */*|\**|\?*|*:*|*\"*|*<*|*>**|\|*|*\\*|*$'\r'*|*$'\n'*)
+              echo "Invalid character found in ARTIFACT_NAME: '${ARTIFACT_NAME}'"
+              exit 1;;
           esac
 
       - name: Upload per-repo artifact
         if: steps.tags.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          # ✅ ТОЛЬКО санитизированное имя из шага idents
-          name: ${{ steps.idents.outputs.artifact_name }}
-          path: ${{ steps.rep.outputs.out }}
+          # Используем ТОЛЬКО env, вычисленный выше
+          name: ${{ env.ARTIFACT_NAME }}
+          path: ${{ env.OUT_FILE }}
 
   aggregate:
     name: Combine reports
