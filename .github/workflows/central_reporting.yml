@@ -44,21 +44,27 @@ jobs:
         working-directory: ./a-repo
         run: |
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          
+          # Логика для надежного получения второго с конца тега. Если тегов меньше двух, используем флаг NOT_FOUND.
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null || echo "initial")
+          if [ -z "$PREVIOUS_TAG_HASH" ]; then
+              PREVIOUS_REF="NOT_FOUND" 
+          else
+              PREVIOUS_REF=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null)
+          fi
 
           echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
-          echo "previous-ref=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "previous-ref=$PREVIOUS_REF" >> $GITHUB_OUTPUT
 
       - name: Compare A Schemas and Generate Report
         id: compare_a
-        # ИСПРАВЛЕННЫЙ ПУТЬ: относительный путь в текущем репозитории
+        # Использование локального Action: ./.github/actions/compare-schemas
         uses: ./.github/actions/compare-schemas
         with:
           current-ref: ${{ steps.tags_a.outputs.current-ref }}
           previous-ref: ${{ steps.tags_a.outputs.previous-ref }}
           schemas-path: 'ramls'
-        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action, чтобы он работал в папке a-repo
+        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}/a-repo
 
@@ -78,25 +84,30 @@ jobs:
         working-directory: ./b-repo
         run: |
           CURRENT_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "latest")
+          
           PREVIOUS_TAG_HASH=$(git rev-list --tags --max-count=2 --skip=1 --date-order | head -n 1)
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null || echo "initial")
+          if [ -z "$PREVIOUS_TAG_HASH" ]; then
+              PREVIOUS_REF="NOT_FOUND" 
+          else
+              PREVIOUS_REF=$(git describe --tags --abbrev=0 ${PREVIOUS_TAG_HASH} 2>/dev/null)
+          fi
 
           echo "current-ref=$CURRENT_TAG" >> $GITHUB_OUTPUT
-          echo "previous-ref=$PREVIOUS_TAG" >> $GITHUB_OUTPUT
+          echo "previous-ref=$PREVIOUS_REF" >> $GITHUB_OUTPUT
 
       - name: Compare B Schemas and Generate Report
         id: compare_b
-        # ИСПРАВЛЕННЫЙ ПУТЬ: относительный путь в текущем репозитории
         uses: ./.github/actions/compare-schemas
         with:
           current-ref: ${{ steps.tags_b.outputs.current-ref }}
           previous-ref: ${{ steps.tags_b.outputs.previous-ref }}
           schemas-path: 'ramls'
-        # ПЕРЕОПРЕДЕЛЯЕМ РАБОЧУЮ ОБЛАСТЬ для Action, чтобы он работал в папке b-repo
         env:
           GITHUB_WORKSPACE: ${{ github.workspace }}/b-repo
 
-      # ... (Остальная часть workflow без изменений)
+      # ==========================================================
+      #                 Объединение и Артефакт
+      # ==========================================================
       - name: Combine Reports
         run: |
           {
