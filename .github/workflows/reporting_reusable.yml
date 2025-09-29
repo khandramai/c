@@ -49,7 +49,7 @@ jobs:
           echo "to=${TAGS[0]}"   >> $GITHUB_OUTPUT
           echo "from=${TAGS[1]}" >> $GITHUB_OUTPUT
 
-      # 🔒 Санитизируем owner/repo → owner__repo и формируем ИМЕНА
+      # Санитизация owner/repo → owner__repo и формирование ИМЁН
       - name: Compute safe names (no slashes)
         if: steps.tags.outputs.skip != 'true'
         id: idents
@@ -57,16 +57,16 @@ jobs:
         run: |
           set -e
           REPO="${{ matrix.repo }}"
-          SAFE="${REPO//\//__}"               # khandramai/a -> khandramai__a
+          SAFE="${REPO//\//__}"                 # khandramai/a -> khandramai__a
           FOLDER="${{ inputs.path }}"
           OUT_FILE="${SAFE}-${FOLDER}-tags-diff.md"
           ARTIFACT_NAME="${SAFE}-${FOLDER}-tags-report"
           echo "safe_repo=$SAFE" >> $GITHUB_OUTPUT
           echo "out_file=$OUT_FILE" >> $GITHUB_OUTPUT
           echo "artifact_name=$ARTIFACT_NAME" >> $GITHUB_OUTPUT
-          echo "DEBUG safe_repo=$SAFE"
-          echo "DEBUG out_file=$OUT_FILE"
-          echo "DEBUG artifact_name=$ARTIFACT_NAME"
+          echo "DEBUG: safe_repo=$SAFE"
+          echo "DEBUG: out_file=$OUT_FILE"
+          echo "DEBUG: artifact_name=$ARTIFACT_NAME"
 
       - name: Build repo report
         if: steps.tags.outputs.skip != 'true'
@@ -101,7 +101,6 @@ jobs:
         if: steps.tags.outputs.skip != 'true'
         run: |
           echo "Artifact (sanitized): ${{ steps.idents.outputs.artifact_name }}"
-          # safety check: fail early if вдруг есть '/'
           case "${{ steps.idents.outputs.artifact_name }}" in
             */*) echo "ERROR: artifact name contains slash"; exit 1;;
           esac
@@ -110,7 +109,7 @@ jobs:
         if: steps.tags.outputs.skip != 'true'
         uses: actions/upload-artifact@v4
         with:
-          # ✅ используем только заранее санитизированное имя
+          # ✅ ТОЛЬКО санитизированное имя из шага idents
           name: ${{ steps.idents.outputs.artifact_name }}
           path: ${{ steps.rep.outputs.out }}
 
