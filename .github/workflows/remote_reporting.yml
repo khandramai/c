@@ -31,3 +31,21 @@ jobs:
       head: ${{ inputs.head }}
       repository: khandramai/b
     secrets: inherit
+
+    collect-reports:
+      needs: [ call-remote-a, call-remote-b ]
+      runs-on: ubuntu-latest
+      steps:
+        - name: Download all artifacts from this run
+          uses: actions/download-artifact@v4
+          with:
+            path: reports
+
+        - name: List downloaded reports
+          run: ls -R reports
+
+        - name: Re-upload aggregated reports (optional)
+          uses: actions/upload-artifact@v4
+          with:
+            name: all-reports
+            path: reports
