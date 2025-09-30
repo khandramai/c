@@ -46,13 +46,21 @@ jobs:
           merge-multiple: false
           if-no-artifact-found: warn
 
-      - name: List downloaded
+      - name: Combine HTML reports
         run: |
-          if [ -d reports ]; then ls -R reports; else echo "No artifacts"; fi
+          echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Combined Schema Changes Report</title></head><body>' > combined.html
 
-      - name: Re-upload aggregated (optional)
-        if: ${{ hashFiles('reports/**') != '' }}
+          for f in reports/**/report.html; do
+            echo "<h1>Report: $(basename $(dirname $f))</h1>" >> combined.html
+            # вырезаем body содержимое из каждого файла
+            sed -n '/<body[^>]*>/,/<\/body>/p' "$f" | sed '1d;$d' >> combined.html
+            echo "<hr/>" >> combined.html
+          done
+
+          echo '</body></html>' >> combined.html
+
+      - name: Upload combined report
         uses: actions/upload-artifact@v4
         with:
-          name: all-reports
-          path: reports
+          name: combined-report
+          path: combined.html
