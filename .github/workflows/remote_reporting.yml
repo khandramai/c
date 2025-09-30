@@ -14,21 +14,16 @@ permissions:
   contents: read
   pull-requests: write
 
-#jobs:
-#  call-remote:
-#    uses: khandramai/a/.github/workflows/reporting_action.yml@main
-#    with:
-#      base: ${{ inputs.base }}
-#      head: ${{ inputs.head }}
-
-
-
 jobs:
-  call-remote:
-    strategy:
-      matrix:
-        repo: [khandramai/a, khandramai/b]
-    uses: ${{ matrix.repo }}/.github/workflows/reporting_action.yml@main
+  a:
+    uses: khandramai/a/.github/workflows/reporting_action.yml@main
+    with:
+      base: ${{ inputs.base }}
+      head: ${{ inputs.head }}
+    secrets: inherit
+
+  b:
+    uses: khandramai/b/.github/workflows/reporting_action.yml@main
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
