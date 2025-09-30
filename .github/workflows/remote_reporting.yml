@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   call-remote:
-    uses: khandramai/changes-reporting-poc/.github/workflows/reporting_action_poc.yml@main
+    uses: khandramai/a/.github/workflows/reporting_action.yml@main
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
