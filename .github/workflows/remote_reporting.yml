@@ -1,22 +1,35 @@
-name: Run Remote Reporting
+#name: Run Remote Reporting
+#
+#on:
+#  workflow_dispatch:
+#    inputs:
+#      base:
+#        description: "Optional base ref (tag/commit)"
+#        required: false
+#      head:
+#        description: "Optional head ref (tag/commit)"
+#        required: false
+#
+#permissions:
+#  contents: read
+#  pull-requests: write
+#
+#jobs:
+#  call-remote:
+#    uses: khandramai/a/.github/workflows/reporting_action.yml@main
+#    with:
+#      base: ${{ inputs.base }}
+#      head: ${{ inputs.head }}
 
-on:
-  workflow_dispatch:
-    inputs:
-      base:
-        description: "Optional base ref (tag/commit)"
-        required: false
-      head:
-        description: "Optional head ref (tag/commit)"
-        required: false
 
-permissions:
-  contents: read
-  pull-requests: write
 
 jobs:
   call-remote:
-    uses: khandramai/a/.github/workflows/reporting_action.yml@main
+    strategy:
+      matrix:
+        repo: [khandramai/a, khandramai/b]
+    uses: ${{ matrix.repo }}/.github/workflows/reporting_action.yml@main
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
+    secrets: inherit
