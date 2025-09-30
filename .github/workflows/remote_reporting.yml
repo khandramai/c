@@ -21,6 +21,7 @@ jobs:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
       repository: khandramai/a
+    artifact_name: report-a
     secrets: inherit
 
   call-remote-b:
@@ -30,6 +31,7 @@ jobs:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
       repository: khandramai/b
+    artifact_name: report-b
     secrets: inherit
 
   collect-reports:
