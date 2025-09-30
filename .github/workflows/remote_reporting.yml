@@ -22,10 +22,10 @@ jobs:
       head: ${{ inputs.head }}
     secrets: inherit
 
-#  call-remote-b:
-#    uses: khandramai/b/.github/workflows/reporting_action.yml@main
-#    with:
-#      base: ${{ inputs.base }}
-#      head: ${{ inputs.head }}
-#      concurrency_key: b
-#    secrets: inherit
+  call-remote-b:
+    needs: call-remote-a
+    uses: khandramai/b/.github/workflows/reporting_action.yml@main
+    with:
+      base: ${{ inputs.base }}
+      head: ${{ inputs.head }}
+    secrets: inherit
