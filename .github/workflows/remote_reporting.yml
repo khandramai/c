@@ -15,16 +15,18 @@ permissions:
   pull-requests: write
 
 jobs:
-  a:
+  call-remote-a:
     uses: khandramai/a/.github/workflows/reporting_action.yml@main
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
+      concurrency_key: repo-a
     secrets: inherit
 
-  b:
+  call-remote-b:
     uses: khandramai/b/.github/workflows/reporting_action.yml@main
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
+      concurrency_key: repo-b
     secrets: inherit
