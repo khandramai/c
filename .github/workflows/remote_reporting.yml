@@ -34,29 +34,25 @@ jobs:
       artifact_name: report-b
     secrets: inherit
 
-  collect-reports:
-    needs: [call-remote-a, call-remote-b]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all report artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: report-*
-          path: reports
-          merge-multiple: false
-          if-no-artifact-found: warn
+    collect-reports:
+      needs: [call-remote-a, call-remote-b]
+      runs-on: ubuntu-latest
+      steps:
+        - name: Download all report artifacts
+          uses: actions/download-artifact@v4
+          with:
+            pattern: report-*
+            path: reports
+            merge-multiple: false
+            if-no-artifact-found: warn
 
-      - name: List downloaded reports
-        run: |
-          if [ -d reports ]; then
-            ls -R reports
-          else
-            echo "No reports directory (no artifacts downloaded)."
-          fi
+        - name: List downloaded
+          run: |
+            if [ -d reports ]; then ls -R reports; else echo "No artifacts"; fi
 
-      - name: Re-upload aggregated reports (optional)
-        if: ${{ hashFiles('reports/**') != '' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: all-reports
-          path: reports
+        - name: Re-upload aggregated (optional)
+          if: ${{ hashFiles('reports/**') != '' }}
+          uses: actions/upload-artifact@v4
+          with:
+            name: all-reports
+            path: reports
