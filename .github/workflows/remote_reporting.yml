@@ -33,18 +33,27 @@ jobs:
     secrets: inherit
 
   collect-reports:
-    needs: [ call-remote-a, call-remote-b ]
+    needs: [call-remote-a, call-remote-b]
     runs-on: ubuntu-latest
     steps:
-      - name: Download all artifacts from this run
+      - name: Download all report artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: report-*
           path: reports
+          merge-multiple: false
+          if-no-artifact-found: warn
 
       - name: List downloaded reports
-        run: ls -R reports
+        run: |
+          if [ -d reports ]; then
+            ls -R reports
+          else
+            echo "No reports directory (no artifacts downloaded)."
+          fi
 
       - name: Re-upload aggregated reports (optional)
+        if: ${{ hashFiles('reports/**') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: all-reports
