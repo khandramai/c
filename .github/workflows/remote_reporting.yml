@@ -17,17 +17,17 @@ permissions:
 jobs:
   call-remote-a:
     uses: khandramai/a/.github/workflows/reporting_action.yml@main
-    repository: khandramai/a
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
+      repository: khandramai/a
     secrets: inherit
 
   call-remote-b:
     needs: call-remote-a
     uses: khandramai/b/.github/workflows/reporting_action.yml@main
-    repository: khandramai/b
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
+      repository: khandramai/b
     secrets: inherit
