@@ -20,7 +20,7 @@ jobs:
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
-      concurrency_key: repo-a
+      concurrency_key: a
     secrets: inherit
 
   call-remote-b:
@@ -28,5 +28,5 @@ jobs:
     with:
       base: ${{ inputs.base }}
       head: ${{ inputs.head }}
-      concurrency_key: repo-b
+      concurrency_key: b
     secrets: inherit
