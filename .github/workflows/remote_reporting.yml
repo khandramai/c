@@ -1,14 +1,14 @@
 name: Run Remote Reporting
 
-on:
-  workflow_dispatch:
-    inputs:
-      base:
-        description: "Optional base ref (tag/commit)"
-        required: false
-      head:
-        description: "Optional head ref (tag/commit)"
-        required: false
+#on:
+#  workflow_dispatch:
+#    inputs:
+#      base:
+#        description: "Optional base ref (tag/commit)"
+#        required: false
+#      head:
+#        description: "Optional head ref (tag/commit)"
+#        required: false
 
 permissions:
   contents: read
@@ -51,17 +51,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          # найдём первый report.html, из него возьмём <head>
           FIRST_HTML="$(find reports -type f -name 'report.html' | sort | head -n1)"
           if [[ -z "${FIRST_HTML}" ]]; then
             echo "No report.html files found" >&2
             exit 1
           fi
 
-          # извлечь head целиком (без тегов <head>...</head>)
           HEAD_CONTENT="$(sed -n '/<head[^>]*>/,/<\/head>/p' "${FIRST_HTML}" | sed '1d;$d')"
 
-          # старт комбинированного файла с теми же стилями, что и в первом отчёте
           {
             echo '<!DOCTYPE html>'
             echo '<html lang="en">'
@@ -75,12 +72,10 @@ jobs:
             echo '<h1>Combined Schema Changes Report</h1>'
           } > combined.html
 
-          # пробежимся по всем отчётам и вставим их body-контент
           while IFS= read -r f; do
             section_title="$(basename "$(dirname "$f")")"   # имя артефакта, напр. report-a
             echo "<hr><h2>${section_title}</h2>" >> combined.html
 
-            # взять только содержимое body (без самих тегов)
             sed -n '/<body[^>]*>/,/<\/body>/p' "$f" | sed '1d;$d' >> combined.html
             echo >> combined.html
           done < <(find reports -type f -name 'report.html' | sort)
